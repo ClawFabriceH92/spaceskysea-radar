@@ -3,6 +3,8 @@ package com.fabrice.spaceskysea.data.opensky
 import com.fabrice.spaceskysea.data.Aircraft
 import com.fabrice.spaceskysea.data.GeoUtils
 import com.fabrice.spaceskysea.data.SettingsStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
@@ -38,7 +40,7 @@ class OpenSkyRepository(private val settings: SettingsStore) {
     /** Requête OpenSky sur une bounding box explicite (utilisé aussi par le suivi de vol). */
     suspend fun fetchBoundingBox(
         latMin: Double, lonMin: Double, latMax: Double, lonMax: Double
-    ): OpenSkyResult {
+    ): OpenSkyResult = withContext(Dispatchers.IO) {
         val url = "https://opensky-network.org/api/states/all" +
             "?lamin=$latMin&lomin=$lonMin&lamax=$latMax&lomax=$lonMax"
         val builder = Request.Builder().url(url).header("User-Agent", "SpaceSkySeaRadar/1.0")
@@ -49,10 +51,10 @@ class OpenSkyRepository(private val settings: SettingsStore) {
             )
         }
         val response = client.newCall(builder.build()).execute()
-        return try {
+        try {
             when (response.code) {
                 200 -> {
-                    val body = response.body?.string() ?: return OpenSkyResult.Error("Réponse vide")
+                    val body = response.body?.string() ?: return@withContext OpenSkyResult.Error("Réponse vide")
                     OpenSkyResult.Success(OpenSkyParser.parseStates(body))
                 }
                 429 -> OpenSkyResult.QuotaExceeded
