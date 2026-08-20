@@ -153,17 +153,18 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
                     totalAircraft = result.aircraft.size,
                     apiBlocked = false,
                 )
-                // Départ/arrivée : requête par avion (icao24), limité aux 8 plus proches.
-                // Cache les succès ; retente après 5 min si échec (vol récent peut apparaître).
+                // Départ/arrivée : max 3 avions par cycle, 1,5 s entre chaque (rate limit OpenSky).
+                // Cache les succès ; retente après 5 min si échec.
                 val nowMs = System.currentTimeMillis()
-                val missing = all.take(8).filter { t ->
+                val missing = all.take(3).filter { t ->
                     !routesCache.containsKey(t.icao24) &&
                         (routesAttemptedAt[t.icao24]?.let { nowMs - it > 300_000 } ?: true)
                 }
                 for (t in missing) {
                     routesAttemptedAt[t.icao24] = nowMs
                     val route = opensky.fetchFlightRoute(t.icao24)
-                    if (route != null) routesCache[t.icao24] = route
+                    if (route != null && route.first != "LIMIT") routesCache[t.icao24] = route
+                    delay(1500) // respecte le rate limit OpenSky (1 req/s max)
                 }
                 if (missing.isNotEmpty()) {
                     val updated = all.map { t ->

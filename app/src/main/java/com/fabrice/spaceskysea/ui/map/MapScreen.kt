@@ -253,6 +253,13 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                                 Text("Recherche de l'itinéraire…", style = MaterialTheme.typography.bodyMedium)
                             }
                         }
+                        route != null && route!!.first == "LIMIT" -> {
+                            Text(
+                                "⏳ Quota OpenSky atteint (trop de requêtes) — attendez quelques secondes puis réessayez",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFE65100),
+                            )
+                        }
                         route != null -> {
                             Text(
                                 "🛫 Itinéraire : ${route!!.first} → ${route!!.second}",

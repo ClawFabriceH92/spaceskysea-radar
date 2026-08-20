@@ -82,6 +82,22 @@ class OpenSkyRepository(private val settings: SettingsStore) {
         return fetchBoundingBox(bb.latMin, bb.lonMin, bb.latMax, bb.lonMax)
     }
 
+    /** Exécute une requête avec Bearer ; en cas de 401 (token expiré), refetch le token et retente une fois. */
+    private suspend fun executeAuth(builder: Request.Builder): okhttp3.Response {
+        authHeader()?.let { builder.header("Authorization", it) }
+        var resp = client.newCall(builder.build()).execute()
+        if (resp.code == 401 && settings.hasOpenSkyCredentials) {
+            resp.close()
+            cachedToken = null // token expiré/invalidé → force le refetch
+            val retryAuth = authHeader()
+            if (retryAuth != null) {
+                builder.header("Authorization", retryAuth)
+                resp = client.newCall(builder.build()).execute()
+            }
+        }
+        return resp
+    }
+
     /** Requête OpenSky sur une bounding box explicite (utilisé aussi par le suivi de vol). */
     suspend fun fetchBoundingBox(
         latMin: Double, lonMin: Double, latMax: Double, lonMax: Double
@@ -89,8 +105,7 @@ class OpenSkyRepository(private val settings: SettingsStore) {
         val url = "https://opensky-network.org/api/states/all" +
             "?lamin=$latMin&lomin=$lonMin&lamax=$latMax&lomax=$lonMax"
         val builder = Request.Builder().url(url).header("User-Agent", "SpaceSkySeaRadar/1.0")
-        authHeader()?.let { builder.header("Authorization", it) }
-        val response = client.newCall(builder.build()).execute()
+        val response = executeAuth(builder)
         try {
             when (response.code) {
                 200 -> {
@@ -140,30 +155,34 @@ class OpenSkyRepository(private val settings: SettingsStore) {
     suspend fun fetchFlightRoute(icao24: String): Pair<String, String>? = withContext(Dispatchers.IO) {
         try {
             val now = System.currentTimeMillis() / 1000
-            val begin = now - 24 * 3600
+            val begin = now - 3 * 3600 // 3 h suffisent pour le départ (24 h = trop de crédits OpenSky)
             val url = "https://opensky-network.org/api/flights/aircraft" +
                 "?icao24=$icao24&begin=$begin&end=$now"
             val builder = Request.Builder().url(url).header("User-Agent", "SpaceSkySeaRadar/1.0")
-            authHeader()?.let { builder.header("Authorization", it) }
-            val resp = client.newCall(builder.build()).execute()
+            val resp = executeAuth(builder)
             try {
-                if (resp.code != 200) return@withContext null
-                val body = resp.body?.string() ?: return@withContext null
-                val arr = json.parseToJsonElement(body).jsonArray
-                for (el in arr) {
-                    val obj = el.jsonObject
-                    val origin = obj["estDepartureAirport"]?.jsonPrimitive?.contentOrNull
-                    val dest = obj["estArrivalAirport"]?.jsonPrimitive?.contentOrNull
-                    // IMPORTANT : un avion EN VOL a souvent l'arrivée encore vide (None).
-                    // On retourne dès que le DÉPART est connu ; l'arrivée s'affiche quand dispo.
-                    if (origin != null && origin.length == 3) {
-                        return@withContext origin to (dest?.takeIf { it.length == 3 } ?: "?")
+                when (resp.code) {
+                    200 -> {
+                        val body = resp.body?.string() ?: return@withContext null
+                        val arr = json.parseToJsonElement(body).jsonArray
+                        for (el in arr) {
+                            val obj = el.jsonObject
+                            val origin = obj["estDepartureAirport"]?.jsonPrimitive?.contentOrNull
+                            val dest = obj["estArrivalAirport"]?.jsonPrimitive?.contentOrNull
+                            // IMPORTANT : un avion EN VOL a souvent l'arrivée encore vide (None).
+                            // On retourne dès que le DÉPART est connu ; l'arrivée s'affiche quand dispo.
+                            if (origin != null && origin.length == 3) {
+                                return@withContext origin to (dest?.takeIf { it.length == 3 } ?: "?")
+                            }
+                            if (dest != null && dest.length == 3) {
+                                return@withContext "?" to dest
+                            }
+                        }
+                        null
                     }
-                    if (dest != null && dest.length == 3) {
-                        return@withContext "?" to dest
-                    }
+                    429 -> return@withContext "LIMIT" to "LIMIT" // marqueur : quota/rate limit
+                    else -> null
                 }
-                null
             } finally {
                 resp.close()
             }
