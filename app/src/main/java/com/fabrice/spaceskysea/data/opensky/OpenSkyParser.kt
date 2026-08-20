@@ -42,6 +42,7 @@ object OpenSkyParser {
                 velocityMs = f(9),
                 heading = f(10),
                 onGround = b(8),
+                verticalRateMs = f(11),
             )
         }
         return out

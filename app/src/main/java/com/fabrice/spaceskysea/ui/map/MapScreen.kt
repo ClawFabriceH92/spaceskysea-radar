@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +72,13 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
         }
     }
 
+    // Recentrage automatique sur la position GPS dès le premier fix
+    LaunchedEffect(pos.hasFix) {
+        if (pos.hasFix) {
+            mapView?.controller?.animateTo(GeoPoint(pos.latitude, pos.longitude), 13.0, 600L)
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -87,7 +95,6 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                 )
                 mv.controller.setZoom(11.0)
                 mv.setMultiTouchControls(true)
-                mv.setTilesScaledToDpi(true)
                 mv.onResume()
                 mapView = mv
                 mv
@@ -136,7 +143,7 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                     val me = Marker(mv)
                     me.position = GeoPoint(pos.latitude, pos.longitude)
                     me.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    me.icon = BitmapDrawable(mv.context.resources, drawAircraftBitmap(sizePx(26), Color(0xFF1B468A)))
+                    me.icon = drawUserDot(mv.context, sizePx(16), Color(0xFF1B468A))
                     mv.overlays.add(me)
                 }
             }
@@ -264,6 +271,21 @@ private fun altitudeSize(altitude: Float?): Int = when {
 }
 
 private fun sizePx(dp: Int): Int = (dp * 2.75f).toInt()
+
+/** Point bleu pour la position de l'utilisateur (cercle plein + liseré blanc). */
+private fun drawUserDot(context: Context, size: Int, color: Color): android.graphics.drawable.Drawable {
+    val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bmp)
+    val outer = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    outer.color = color.toArgb()
+    val white = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    white.color = android.graphics.Color.WHITE
+    val cx = size / 2f
+    val r = size / 2f - 1f
+    canvas.drawCircle(cx, cx, r + 2f, white)
+    canvas.drawCircle(cx, cx, r, outer)
+    return android.graphics.drawable.BitmapDrawable(context.resources, bmp)
+}
 
 private fun drawAircraftBitmap(size: Int, color: Color): android.graphics.Bitmap {
     val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)

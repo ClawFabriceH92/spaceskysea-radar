@@ -24,6 +24,7 @@ data class Aircraft(
     val velocityMs: Float?,
     val heading: Float?,
     val onGround: Boolean,
+    val verticalRateMs: Float? = null,
 )
 
 /** Un navire vu par AISstream. */

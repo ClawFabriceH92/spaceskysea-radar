@@ -39,6 +39,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.fabrice.spaceskysea.data.StarCatalog
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -93,12 +94,23 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
                 onClick = { mode = 1 },
                 label = { Text("Vertical (ciel)") },
             )
+            FilterChip(
+                selected = mode == 2,
+                onClick = { mode = 2 },
+                label = { Text("Contrôleur") },
+            )
+            FilterChip(
+                selected = mode == 3,
+                onClick = { mode = 3 },
+                label = { Text("Ciel") },
+            )
         }
 
-        if (mode == 0) {
-            HorizontalView(s)
-        } else {
-            VerticalSkyView(s)
+        when (mode) {
+            0 -> HorizontalView(s)
+            1 -> VerticalSkyView(s)
+            2 -> ControllerView(s)
+            else -> SkyView(s)
         }
 
         if (s.apiBlocked) {
@@ -142,6 +154,17 @@ private fun HorizontalView(s: BinocularsState) {
 
 @Composable
 private fun TargetCard(t: Target) {
+    val vr = t.verticalRateMs ?: 0f
+    val trend = when {
+        vr > 1f -> "▲ monte"
+        vr < -1f -> "▼ descend"
+        else -> "▶ niveau"
+    }
+    val trendColor = when {
+        vr > 1f -> Color(0xFF2E7D32)
+        vr < -1f -> Color(0xFFD32F2F)
+        else -> Color(0xFF546E7A)
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -158,7 +181,115 @@ private fun TargetCard(t: Target) {
         }
         Row(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
             t.altitudeMeters?.let { Text("Alt ${it.toInt()} m · ", style = MaterialTheme.typography.bodySmall) }
-            t.speedKmh?.let { Text("${it.roundToInt()} km/h", style = MaterialTheme.typography.bodySmall) }
+            t.speedKmh?.let { Text("${it.roundToInt()} km/h · ", style = MaterialTheme.typography.bodySmall) }
+            if (t.country.isNotBlank()) {
+                Text("🌍 ${t.country} · ", style = MaterialTheme.typography.bodySmall)
+            }
+            Text(trend, style = MaterialTheme.typography.bodySmall, color = trendColor)
+        }
+    }
+}
+
+/**
+ * Mode Contrôleur aérien : TOUT le trafic autour, trié par distance,
+ * code couleur par altitude, cap + montée/descente visibles.
+ */
+@Composable
+private fun ControllerView(s: BinocularsState) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            "🛩️ Trafic aérien — ${s.allAircraft.size} avions dans ${s.maxDistanceKm} km",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(vertical = 6.dp),
+        )
+        Row(Modifier.padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LegendDot(Color(0xFF2E7D32), "Bas")
+            LegendDot(Color(0xFFF57C00), "Moyen")
+            LegendDot(Color(0xFFD32F2F), "Haut")
+        }
+        if (s.allAircraft.isEmpty()) {
+            Text(
+                "Aucun avion détecté dans le rayon",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        } else {
+            LazyColumn(Modifier.fillMaxWidth()) {
+                items(s.allAircraft) { t ->
+                    ControllerRow(t)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegendDot(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Canvas(Modifier.size(10.dp)) {
+            drawCircle(color)
+        }
+        Spacer(Modifier.width(4.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun ControllerRow(t: Target) {
+    val altColor = when {
+        (t.altitudeMeters ?: 0f) < 3000f -> Color(0xFF2E7D32)
+        (t.altitudeMeters ?: 0f) < 9000f -> Color(0xFFF57C00)
+        else -> Color(0xFFD32F2F)
+    }
+    val trend = when {
+        (t.verticalRateMs ?: 0f) > 1f -> "▲"
+        (t.verticalRateMs ?: 0f) < -1f -> "▼"
+        else -> "▶"
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Canvas(Modifier.size(12.dp)) { drawCircle(altColor) }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "${t.label} $trend",
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${t.altitudeMeters?.let { "${it.toInt()} m" } ?: "?"}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                "${t.distanceKm.roundToInt()} km",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Row(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)) {
+            Text("Cap ${t.bearing.roundToInt()}° · ", style = MaterialTheme.typography.bodySmall)
+            t.speedKmh?.let { Text("${it.roundToInt()} km/h · ", style = MaterialTheme.typography.bodySmall) }
+            if (t.country.isNotBlank()) {
+                Text("🌍 ${t.country}", style = MaterialTheme.typography.bodySmall)
+            }
+            Spacer(Modifier.weight(1f))
+            (t.verticalRateMs ?: 0f).let { vr ->
+                if (vr != 0f) {
+                    Text(
+                        if (vr > 0) "▲ ${(vr * 196.85f).roundToInt()} ft/min" else "▼ ${(-vr * 196.85f).roundToInt()} ft/min",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (vr > 0) Color(0xFF2E7D32) else Color(0xFFD32F2F),
+                    )
+                }
+            }
         }
     }
 }
@@ -248,6 +379,19 @@ private fun VerticalSkyView(s: BinocularsState) {
                     textMeasurer.measure(t.label.take(6), labelStyle),
                     topLeft = Offset(x - 18f, y + 8f),
                 )
+                // Flèche de montée/descente (▲ / ▼)
+                val vr = t.verticalRateMs ?: 0f
+                if (vr > 1f) {
+                    drawText(
+                        textMeasurer.measure("▲", TextStyle(fontSize = 12.sp, color = Color(0xFF2E7D32))),
+                        topLeft = Offset(x + 8f, y - 16f),
+                    )
+                } else if (vr < -1f) {
+                    drawText(
+                        textMeasurer.measure("▼", TextStyle(fontSize = 12.sp, color = Color(0xFFD32F2F))),
+                        topLeft = Offset(x + 8f, y + 6f),
+                    )
+                }
             }
 
             if (s.targets.isEmpty()) {
@@ -262,6 +406,87 @@ private fun VerticalSkyView(s: BinocularsState) {
             "Distance → · Altitude ↑ (rayon ${s.maxDistanceKm} km)",
             style = MaterialTheme.typography.bodySmall,
             color = Color(0xFF1B468A),
+        )
+    }
+}
+
+/**
+ * Mode Ciel : carte du ciel gyroscopique. Levez le téléphone — les étoiles
+ * visibles (calculées depuis votre position + date/heure) et les avions
+ * s'affichent dans la direction visée.
+ */
+@Composable
+private fun SkyView(s: BinocularsState) {
+    val textMeasurer = rememberTextMeasurer()
+    val starLabel = TextStyle(fontSize = 9.sp, color = Color(0xFFBBDEFB))
+    val planeLabel = TextStyle(fontSize = 10.sp, color = Color(0xFFFFCDD2))
+    val fovAz = 75f   // demi-champ en azimut
+    val fovAlt = 55f  // demi-champ en altitude
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(400.dp)
+        ) {
+            val w = size.width
+            val h = size.height
+
+            fun xOf(azDeg: Float) = (azDeg - (s.heading - fovAz)) / (2 * fovAz) * w
+            fun yOf(altDeg: Float) = (1f - (altDeg - (s.pitchDeg - fovAlt)) / (2 * fovAlt)) * h
+
+            // Nuit
+            drawRect(
+                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                    listOf(Color(0xFF010A18), Color(0xFF0B1D3A))
+                ),
+                size = size,
+            )
+
+            // Grille (horizon, zénith)
+            val horizonY = yOf(0f)
+            drawLine(Color(0x2200BFFF), Offset(0f, horizonY), Offset(w, horizonY), strokeWidth = 2f)
+            drawText(textMeasurer.measure("Horizon", TextStyle(fontSize = 8.sp, color = Color(0x6600BFFF))), topLeft = Offset(4f, horizonY + 2f))
+            drawText(textMeasurer.measure("Zénith", TextStyle(fontSize = 8.sp, color = Color(0x6600BFFF))), topLeft = Offset(4f, yOf(80f)))
+
+            // Étoiles (position astronomique réelle)
+            val now = java.util.Date()
+            val stars = StarCatalog.visibleStars(now, s.position.latitude, s.position.longitude)
+            stars.forEach { (star, pos) ->
+                val dx = angularDiff(pos.azimuthDeg.toFloat(), s.heading)
+                val dy = pos.altitudeDeg.toFloat() - s.pitchDeg
+                if (dx <= fovAz && dy > -fovAlt && dy < fovAlt + 20f) {
+                    val x = xOf(if (pos.azimuthDeg < 180) s.heading + dx else s.heading - dx)
+                    val y = yOf(pos.altitudeDeg.toFloat())
+                    val r = (4.5f - star.magnitude.toFloat()).coerceIn(1.5f, 4.5f)
+                    drawCircle(Color(0xFFE3F2FD), radius = r, center = Offset(x, y))
+                    drawText(textMeasurer.measure(star.name, starLabel), topLeft = Offset(x + 5f, y - 6f))
+                }
+            }
+
+            // Avions dans le ciel (azimut + élévation)
+            s.targets.forEach { t ->
+                val dx = angularDiff(t.bearing, s.heading)
+                val dy = t.elevationDeg - s.pitchDeg
+                if (dx <= fovAz && dy > -fovAlt && dy < fovAlt + 20f) {
+                    val x = xOf(if (t.bearing < 180) s.heading + dx else s.heading - dx)
+                    val y = yOf(t.elevationDeg)
+                    drawCircle(Color(0xFFD32F2F), radius = 5f, center = Offset(x, y))
+                    drawCircle(Color.White, radius = 1.5f, center = Offset(x, y))
+                    drawText(textMeasurer.measure(t.label.take(7), planeLabel), topLeft = Offset(x + 6f, y - 6f))
+                }
+            }
+        }
+
+        Text(
+            "Cap ${s.heading.roundToInt()}° · Inclinaison ${s.pitchDeg.roundToInt()}° — levez le téléphone",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF1B468A),
+        )
+        Text(
+            "Étoiles réelles (position calculée) + ✈️ avions détectés",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF546E7A),
         )
     }
 }
@@ -299,4 +524,10 @@ private fun Compass(heading: Float, modifier: Modifier = Modifier) {
             strokeWidth = 3f,
         )
     }
+}
+
+/** Différence angulaire minimale entre deux caps [0..180]. */
+private fun angularDiff(a: Float, b: Float): Float {
+    val d = (a - b) % 360
+    return if (d > 180) 360 - d else if (d < -180) d + 360 else d
 }

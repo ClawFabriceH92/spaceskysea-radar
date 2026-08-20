@@ -34,12 +34,17 @@ data class Target(
     val distanceKm: Float,
     val altitudeMeters: Float?,
     val speedKmh: Float?,
+    val verticalRateMs: Float? = null,  // montée/descente (m/s)
+    val country: String = "",           // pays d'origine
+    val elevationDeg: Float = 0f,       // angle au-dessus de l'horizon (vue du ciel)
 )
 
 data class BinocularsState(
     val heading: Float = 0f,          // cap du téléphone (boussole)
+    val pitchDeg: Float = 0f,         // inclinaison verticale du téléphone (0=horizontal, 90=levé)
     val position: UserPosition = UserPosition(48.85, 2.35, 0f, 0f, 0f, false),
-    val targets: List<Target> = emptyList(),
+    val targets: List<Target> = emptyList(),      // cibles dans le cône de visée
+    val allAircraft: List<Target> = emptyList(),  // TOUT le trafic (mode contrôleur)
     val totalAircraft: Int = 0,
     val apiBlocked: Boolean = false,
     val maxDistanceKm: Int = 50,      // rayon de recherche configuré
@@ -75,7 +80,11 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
                 SensorManager.getOrientation(rotation, orientation)
                 lastHeading = Math.toDegrees(orientation[0].toDouble()).toFloat()
                     .let { if (it < 0) it + 360f else it }
-                _state.value = _state.value.copy(heading = lastHeading)
+                val pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
+                _state.value = _state.value.copy(
+                    heading = lastHeading,
+                    pitchDeg = pitch,
+                )
             }
         }
 
@@ -99,25 +108,28 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
             pos.latitude, pos.longitude, settings.aircraftRadiusKm.toDouble()
         )) {
             is OpenSkyResult.Success -> {
-                val targets = result.aircraft.filter { it.latitude != null && it.longitude != null }
-                    .mapNotNull { ac ->
+                val all = result.aircraft.filter { it.latitude != null && it.longitude != null }
+                    .map { ac ->
                         val bearing = bearingTo(pos.latitude, pos.longitude, ac.latitude!!, ac.longitude!!)
-                        val rel = angularDiff(bearing, _state.value.heading)
-                        if (rel <= 45f) {
-                            Target(
-                                label = ac.callsign.ifEmpty { ac.icao24 },
-                                bearing = bearing,
-                                distanceKm = GeoUtils.distanceKm(
-                                    pos.latitude, pos.longitude, ac.latitude!!, ac.longitude!!
-                                ).toFloat(),
-                                altitudeMeters = ac.altitudeMeters,
-                                speedKmh = ac.velocityMs?.let { it * 3.6f },
-                            )
-                        } else null
+                        val dist = GeoUtils.distanceKm(
+                            pos.latitude, pos.longitude, ac.latitude!!, ac.longitude!!
+                        ).toFloat()
+                        Target(
+                            label = ac.callsign.ifEmpty { ac.icao24 },
+                            bearing = bearing,
+                            distanceKm = dist,
+                            altitudeMeters = ac.altitudeMeters,
+                            speedKmh = ac.velocityMs?.let { it * 3.6f },
+                            verticalRateMs = ac.verticalRateMs,
+                            country = ac.originCountry,
+                            elevationDeg = elevationOf(ac.altitudeMeters, dist),
+                        )
                     }
                     .sortedBy { it.distanceKm }
+                val inCone = all.filter { angularDiff(it.bearing, _state.value.heading) <= 45f }
                 _state.value = _state.value.copy(
-                    targets = targets,
+                    targets = inCone,
+                    allAircraft = all,
                     totalAircraft = result.aircraft.size,
                     apiBlocked = false,
                 )
@@ -144,6 +156,12 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
     fun angularDiff(a: Float, b: Float): Float {
         val d = (a - b) % 360
         return if (d > 180) 360 - d else if (d < -180) d + 360 else d
+    }
+
+    /** Élévation de l'avion au-dessus de l'horizon (degrés) : atan(altitude / distance). */
+    fun elevationOf(altitudeMeters: Float?, distanceKm: Float): Float {
+        if (altitudeMeters == null || distanceKm <= 0f) return 0f
+        return Math.toDegrees(Math.atan2(altitudeMeters.toDouble(), distanceKm * 1000.0)).toFloat()
     }
 
     override fun onCleared() {

@@ -60,8 +60,8 @@ android {
         applicationId = "com.fabrice.spaceskysea"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
     }
 
     signingConfigs {
