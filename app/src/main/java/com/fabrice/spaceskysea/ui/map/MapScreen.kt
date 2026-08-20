@@ -47,11 +47,38 @@ import com.fabrice.spaceskysea.data.SettingsStore
 import com.fabrice.spaceskysea.data.UserPosition
 import com.fabrice.spaceskysea.data.Vessel
 import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.ITileSource
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+
+/**
+ * Tuiles CartoDB Voyager en 512 px (@2x) : carte NETTE sur écrans haute densité
+ * (contrairement aux tuiles OSM standard 256 px qui paraissent pixélisées).
+ * Style moderne et lisible, gratuit, sans clé.
+ */
+private class CartoVoyagerSource : XYTileSource(
+    "CartoVoyager", 0, 20, 512, ".png",
+    arrayOf(
+        "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+        "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+        "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    ),
+    "© OpenStreetMap contributors © CARTO",
+) {
+    override fun getTileURLString(tile: Long): String {
+        val z = MapTileIndex.getZoom(tile)
+        val x = MapTileIndex.getX(tile)
+        val y = MapTileIndex.getY(tile)
+        val sub = "abc"[(x + y) % 3]
+        return "https://$sub.basemaps.cartocdn.com/rastertiles/voyager/$z/$x/$y@2x.png"
+    }
+}
 
 @Composable
 fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
@@ -91,7 +118,7 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                 val mv = MapView(ctx)
                 mv.setTileSource(
                     if (settings.useOpenTopoMap) TileSourceFactory.USGS_TOPO
-                    else TileSourceFactory.MAPNIK
+                    else CartoVoyagerSource()
                 )
                 mv.controller.setZoom(11.0)
                 mv.setMultiTouchControls(true)
