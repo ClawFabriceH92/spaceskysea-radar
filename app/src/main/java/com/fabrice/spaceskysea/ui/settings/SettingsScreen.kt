@@ -86,7 +86,7 @@ fun SettingsScreen(
             )
         }
         Button(
-            onClick = { filePicker.launch("application/json") },
+            onClick = { filePicker.launch("*/*") },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 6.dp),
