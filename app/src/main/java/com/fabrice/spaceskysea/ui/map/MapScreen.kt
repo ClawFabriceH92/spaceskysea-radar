@@ -63,6 +63,14 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
     var selectedAircraft by remember { mutableStateOf<Aircraft?>(null) }
     var selectedVessel by remember { mutableStateOf<Vessel?>(null) }
 
+    // Cycle de vie osmdroid : onResume/onPause/onDestroy sont OBLIGATOIRES
+    // pour que le chargement des tuiles démarre (piège classique).
+    DisposableEffect(Unit) {
+        onDispose {
+            mapView?.onDetach()
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -79,6 +87,8 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                 )
                 mv.controller.setZoom(11.0)
                 mv.setMultiTouchControls(true)
+                mv.setTilesScaledToDpi(true)
+                mv.onResume()
                 mapView = mv
                 mv
             },
@@ -246,10 +256,11 @@ private fun SpeedBanner(
 }
 
 private fun altitudeSize(altitude: Float?): Int = when {
-    altitude == null -> 12
-    altitude < 3000f -> 14
-    altitude < 9000f -> 20
-    else -> 28
+    altitude == null -> 16
+    altitude < 3000f -> 18
+    altitude < 6000f -> 26
+    altitude < 9000f -> 32
+    else -> 40
 }
 
 private fun sizePx(dp: Int): Int = (dp * 2.75f).toInt()
@@ -260,14 +271,19 @@ private fun drawAircraftBitmap(size: Int, color: Color): android.graphics.Bitmap
     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
     paint.color = color.toArgb()
     val cx = size / 2f
-    val cy = size / 2f
     val r = size / 2f - 1f
-    // Flèche orientée vers le haut (rotation appliquée par le Marker)
+    // Avion stylisé vu du dessus, pointant vers le haut (rotation par le Marker)
     val path = android.graphics.Path()
-    path.moveTo(cx, cy - r)
-    path.lineTo(cx - r * 0.8f, cy + r)
-    path.lineTo(cx, cy + r * 0.55f)
-    path.lineTo(cx + r * 0.8f, cy + r)
+    path.moveTo(cx, r * 0.12f)             // nez
+    path.lineTo(cx - r * 0.32f, r * 0.58f) // côté fuselage gauche
+    path.lineTo(cx - r * 0.95f, r * 0.72f) // bout aile gauche
+    path.lineTo(cx - r * 0.30f, r * 0.62f) // rentrant
+    path.lineTo(cx - r * 0.26f, r * 0.95f) // arrière gauche
+    path.lineTo(cx, r * 0.82f)             // queue (milieu)
+    path.lineTo(cx + r * 0.26f, r * 0.95f) // arrière droite
+    path.lineTo(cx + r * 0.30f, r * 0.62f) // rentrant
+    path.lineTo(cx + r * 0.95f, r * 0.72f) // bout aile droite
+    path.lineTo(cx + r * 0.32f, r * 0.58f) // côté fuselage droit
     path.close()
     canvas.drawPath(path, paint)
     return bmp

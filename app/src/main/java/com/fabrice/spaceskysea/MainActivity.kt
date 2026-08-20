@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -26,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.content.ContextCompat
+import com.fabrice.spaceskysea.ui.binoculars.BinocularsScreen
 import com.fabrice.spaceskysea.ui.flight.FlightScreen
 import com.fabrice.spaceskysea.ui.map.MapScreen
 import com.fabrice.spaceskysea.ui.settings.SettingsScreen
@@ -82,6 +84,7 @@ fun SpaceSkySeaApp(
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf(
         TabItem("Carte", Icons.Filled.Map),
+        TabItem("Jumelles", Icons.Filled.Visibility),
         TabItem("Vol", Icons.Filled.Flight),
         TabItem("Paramètres", Icons.Filled.Settings),
     )
@@ -102,8 +105,9 @@ fun SpaceSkySeaApp(
     ) { padding ->
         when (selectedTab) {
             0 -> MapScreen(Modifier.padding(padding))
-            1 -> FlightScreen(Modifier.padding(padding))
-            2 -> SettingsScreen(
+            1 -> BinocularsScreen(Modifier.padding(padding))
+            2 -> FlightScreen(Modifier.padding(padding))
+            3 -> SettingsScreen(
                 settingsViewModel,
                 Modifier.padding(padding),
                 onBackgroundTrackingChanged = { enabled ->
