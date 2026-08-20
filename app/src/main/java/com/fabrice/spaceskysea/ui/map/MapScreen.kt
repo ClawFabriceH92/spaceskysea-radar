@@ -283,9 +283,9 @@ private fun SpeedBanner(
             Text("✈️ ${radar.aircraftCount}", color = Color(0xFFFFCDD2), fontSize = 13.sp)
             Spacer(Modifier.width(10.dp))
             Text("🚢 ${radar.vesselCount}", color = Color(0xFFFFE0B2), fontSize = 13.sp)
-            if (!settings.hasAisstreamKey) {
+            if (!settings.hasAisstreamKey && settings.vesselLayerEnabled) {
                 Spacer(Modifier.width(10.dp))
-                Text("⚠️ Clé AISstream manquante", color = Color(0xFFFFEB3B), fontSize = 12.sp)
+                Text("⚠️ Clé AISstream manquante (Paramètres)", color = Color(0xFFFFEB3B), fontSize = 12.sp)
             }
         }
     }

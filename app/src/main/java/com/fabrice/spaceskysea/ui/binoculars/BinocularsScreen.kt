@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +23,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,11 +34,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -520,30 +526,45 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
     val fovAz = 75f   // demi-champ en azimut
     val fovAlt = 55f  // demi-champ en altitude
     var showStars by remember { mutableStateOf(true) }
+    var zoom by remember { mutableFloatStateOf(1f) }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Étoiles", style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.width(8.dp))
-            Switch(
-                checked = showStars,
-                onCheckedChange = { showStars = it },
-            )
-        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(400.dp)
+                .clipToBounds()
         ) {
             CameraPreview(Modifier.fillMaxSize())
+            // Toggle Étoiles en OVERLAY (évite tout chevauchement avec la caméra)
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                color = Color(0xCCFFFFFF),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("⭐ Étoiles", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.width(4.dp))
+                    Switch(
+                        checked = showStars,
+                        onCheckedChange = { showStars = it },
+                        modifier = Modifier.scale(0.7f),
+                    )
+                }
+            }
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(s.targets) {
+                    .pointerInput(s.targets, zoom) {
                         detectTapGestures { offset ->
-                            // Conversion écran → (azimut, élévation)
-                            val az = s.heading - fovAz + (offset.x / size.width.toFloat()) * (2 * fovAz)
-                            val alt = s.pitchDeg - fovAlt + (1f - offset.y / size.height.toFloat()) * (2 * fovAlt)
+                            // Conversion écran → (azimut, élévation) avec le zoom
+                            val az = s.heading - fovAz / zoom + (offset.x / size.width.toFloat()) * (2 * fovAz / zoom)
+                            val alt = s.pitchDeg - fovAlt / zoom + (1f - offset.y / size.height.toFloat()) * (2 * fovAlt / zoom)
                             // L'avion le plus proche du point touché
                             val hit = s.targets.minByOrNull { t ->
                                 val dAz = angularDiff(t.bearing, az)
@@ -553,12 +574,19 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
                             if (hit != null) onTap(hit)
                         }
                     }
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, _, zoomChange, _ ->
+                            zoom = (zoom * zoomChange).coerceIn(1f, 5f)
+                        }
+                    }
             ) {
                 val w = size.width
                 val h = size.height
+                val fovAzE = fovAz / zoom
+                val fovAltE = fovAlt / zoom
 
-                fun xOf(azDeg: Float) = (azDeg - (s.heading - fovAz)) / (2 * fovAz) * w
-                fun yOf(altDeg: Float) = (1f - (altDeg - (s.pitchDeg - fovAlt)) / (2 * fovAlt)) * h
+                fun xOf(azDeg: Float) = (azDeg - (s.heading - fovAzE)) / (2 * fovAzE) * w
+                fun yOf(altDeg: Float) = (1f - (altDeg - (s.pitchDeg - fovAltE)) / (2 * fovAltE)) * h
 
                 // Voile sombre semi-transparent pour la lisibilité (la caméra reste visible)
                 drawRect(
@@ -580,7 +608,7 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
                     stars.forEach { (star, pos) ->
                         val dx = angularDiff(pos.azimuthDeg.toFloat(), s.heading)
                         val dy = pos.altitudeDeg.toFloat() - s.pitchDeg
-                        if (dx <= fovAz && dy > -fovAlt && dy < fovAlt + 20f) {
+                        if (dx <= fovAzE && dy > -fovAltE && dy < fovAltE + 20f) {
                             val x = xOf(if (pos.azimuthDeg < 180) s.heading + dx else s.heading - dx)
                             val y = yOf(pos.altitudeDeg.toFloat())
                             val r = (4.5f - star.magnitude.toFloat()).coerceIn(1.5f, 4.5f)
@@ -594,7 +622,7 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
                 s.targets.forEach { t ->
                     val dx = angularDiff(t.bearing, s.heading)
                     val dy = t.elevationDeg - s.pitchDeg
-                    if (dx <= fovAz && dy > -fovAlt && dy < fovAlt + 20f) {
+                    if (dx <= fovAzE && dy > -fovAltE && dy < fovAltE + 20f) {
                         val x = xOf(if (t.bearing < 180) s.heading + dx else s.heading - dx)
                         val y = yOf(t.elevationDeg)
                         drawCircle(Color(0xFFD32F2F), radius = 6f, center = Offset(x, y))
@@ -608,6 +636,26 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
                         }
                     }
                 }
+            }
+            // Boutons de zoom (+/-)
+            Column(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+            ) {
+                FloatingActionButton(
+                    onClick = { zoom = (zoom * 1.5f).coerceIn(1f, 5f) },
+                    modifier = Modifier.size(40.dp),
+                    containerColor = Color(0xCCFFFFFF),
+                    contentColor = Color(0xFF1B468A),
+                ) { Text("+", fontSize = 18.sp) }
+                Spacer(Modifier.height(6.dp))
+                FloatingActionButton(
+                    onClick = { zoom = (zoom / 1.5f).coerceIn(1f, 5f) },
+                    modifier = Modifier.size(40.dp),
+                    containerColor = Color(0xCCFFFFFF),
+                    contentColor = Color(0xFF1B468A),
+                ) { Text("−", fontSize = 18.sp) }
             }
         }
 

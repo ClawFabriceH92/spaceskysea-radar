@@ -79,8 +79,10 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
     // Historique des distances par avion (pour rapproche/éloigne)
     private val lastDistance = mutableMapOf<String, Float>()
 
-    // Cache des routes (départ/arrivée) par callsign — 1 seule requête par avion par session
+    // Cache des routes (départ/arrivée) par icao24 — succès uniquement
     private val routesCache = mutableMapOf<String, Pair<String, String>?>()
+    // Dernier essai par icao24 (retente après 5 min si échec)
+    private val routesAttemptedAt = mutableMapOf<String, Long>()
 
     private var pollingJob: Job? = null
 
@@ -151,11 +153,17 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
                     totalAircraft = result.aircraft.size,
                     apiBlocked = false,
                 )
-                // Départ/arrivée : 1 requête par avion (par icao24), limité aux 8 plus proches, avec cache
-                val missing = all.take(8).filter { !routesCache.containsKey(it.icao24) }
+                // Départ/arrivée : requête par avion (icao24), limité aux 8 plus proches.
+                // Cache les succès ; retente après 5 min si échec (vol récent peut apparaître).
+                val nowMs = System.currentTimeMillis()
+                val missing = all.take(8).filter { t ->
+                    !routesCache.containsKey(t.icao24) &&
+                        (routesAttemptedAt[t.icao24]?.let { nowMs - it > 300_000 } ?: true)
+                }
                 for (t in missing) {
+                    routesAttemptedAt[t.icao24] = nowMs
                     val route = opensky.fetchFlightRoute(t.icao24)
-                    routesCache[t.icao24] = route
+                    if (route != null) routesCache[t.icao24] = route
                 }
                 if (missing.isNotEmpty()) {
                     val updated = all.map { t ->
