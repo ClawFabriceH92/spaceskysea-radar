@@ -107,6 +107,34 @@ class OpenSkyRepository(private val settings: SettingsStore) {
         }
     }
 
+    /** Vérifie que les credentials OpenSky fonctionnent : token + 1 requête de test.
+     *  Retourne null si OK, sinon un message d'erreur. */
+    suspend fun testCredentials(): String? = withContext(Dispatchers.IO) {
+        if (!settings.hasOpenSkyCredentials) {
+            return@withContext "Credentials manquants (importez credentials.json)"
+        }
+        val token = getToken()
+        if (token == null) {
+            return@withContext "❌ Token refusé : clientId/clientSecret invalides"
+        }
+        try {
+            val req = Request.Builder()
+                .url("https://opensky-network.org/api/states/all?lamin=48&lomin=2&lamax=49&lomax=3")
+                .header("User-Agent", "SpaceSkySeaRadar/1.0")
+                .header("Authorization", "Bearer $token")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                when (resp.code) {
+                    200 -> null
+                    401, 403 -> "❌ Token refusé par l'API (code ${resp.code})"
+                    else -> "❌ Erreur HTTP ${resp.code}"
+                }
+            }
+        } catch (e: Exception) {
+            "❌ Erreur réseau : ${e.message}"
+        }
+    }
+
     /** Route d'un vol : [origine, destination] (codes IATA 3 lettres, ex. CDG/ORY).
      *  Utilise /api/flights/aircraft (vols d'un avion sur 24 h) — plus fiable que /api/routes. */
     suspend fun fetchFlightRoute(icao24: String): Pair<String, String>? = withContext(Dispatchers.IO) {

@@ -22,6 +22,7 @@ data class SettingsUiState(
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val store = SettingsStore(application)
+    private val opensky = com.fabrice.spaceskysea.data.opensky.OpenSkyRepository(store)
 
     private val _state = MutableStateFlow(readState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
@@ -50,14 +51,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setAisKey(v: String) { store.aisstreamKey = v; _state.value = readState() }
     fun setBackgroundTracking(on: Boolean) { store.backgroundTrackingEnabled = on; _state.value = readState() }
 
-    /**
-     * Importe les credentials OpenSky depuis un fichier credentials.json
-     * (format du portail) : {"clientId": "...", "clientSecret": "..."}.
-     */
+    /** Teste la connexion OpenSky (token + requête). Null = OK. */
+    suspend fun testOpenSkyConnection(): String? = opensky.testCredentials()
     fun importOpenSkyCredentials(uri: android.net.Uri): String? {
         return try {
             val input = getApplication<Application>().contentResolver.openInputStream(uri) ?: return "Fichier illisible"
             val text = input.bufferedReader().use { it.readText() }
+            applyOpenSkyJson(text)
+        } catch (e: Exception) {
+            "Erreur de lecture : ${e.message}"
+        }
+    }
+
+    /** Applique le contenu d'un credentials.json (colle ou import). */
+    fun applyOpenSkyJson(raw: String): String? {
+        return try {
+            val text = raw.trim().removePrefix("\uFEFF") // BOM UTF-8 éventuel
             val json = org.json.JSONObject(text)
             val cid = json.optString("clientId").ifBlank { json.optString("client_id") }
             val secret = json.optString("clientSecret").ifBlank { json.optString("client_secret") }
@@ -66,7 +75,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             setOpenSkyClientSecret(secret)
             null // succès
         } catch (e: Exception) {
-            "Erreur de lecture : ${e.message}"
+            "JSON invalide : ${e.message}"
         }
     }
 }

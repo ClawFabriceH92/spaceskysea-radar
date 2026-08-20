@@ -18,10 +18,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import com.fabrice.spaceskysea.data.SettingsStore
 
 @Composable
@@ -64,12 +67,23 @@ fun SettingsScreen(
 
         SectionTitle("Clés API")
         var importError by remember { mutableStateOf<String?>(null) }
+        var connTest by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+        val scope = rememberCoroutineScope()
+        fun runConnectionTest() {
+            connTest = null
+            scope.launch {
+                val err = settingsViewModel.testOpenSkyConnection()
+                connTest = if (err == null) true to "✅ Connexion OpenSky OK — 4000 req/jour"
+                else false to err
+            }
+        }
         // Import du fichier credentials.json (portail OpenSky)
         val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(
             androidx.activity.result.contract.ActivityResultContracts.GetContent()
         ) { uri: android.net.Uri? ->
             if (uri != null) {
                 importError = settingsViewModel.importOpenSkyCredentials(uri)
+                if (importError == null) runConnectionTest()
             }
         }
         if (s.openskyClientId.isNotBlank()) {
@@ -92,6 +106,44 @@ fun SettingsScreen(
                 .padding(vertical = 6.dp),
         ) {
             Text("📥 Importer credentials.json (OpenSky)")
+        }
+        // Plan B : coller le contenu du JSON directement
+        var pasteJson by remember { mutableStateOf("") }
+        OutlinedTextField(
+            value = pasteJson,
+            onValueChange = { pasteJson = it },
+            label = { Text("Ou collez le contenu du credentials.json ici") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 2,
+            maxLines = 3,
+        )
+        TextButton(
+            onClick = {
+                if (pasteJson.isNotBlank()) {
+                    importError = settingsViewModel.applyOpenSkyJson(pasteJson)
+                    if (importError == null) runConnectionTest()
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Appliquer le JSON collé")
+        }
+        // Test de connexion
+        Button(
+            onClick = { runConnectionTest() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        ) {
+            Text("🔌 Tester la connexion OpenSky")
+        }
+        connTest?.let { (ok, msg) ->
+            Text(
+                msg,
+                color = if (ok) Color(0xFF1B5E20) else MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            )
         }
         importError?.let {
             Text(
