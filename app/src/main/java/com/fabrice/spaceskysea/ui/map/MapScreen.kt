@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.preference.PreferenceManager
+import androidx.core.content.ContextCompat
+import com.fabrice.spaceskysea.R
 import com.fabrice.spaceskysea.data.Aircraft
 import com.fabrice.spaceskysea.data.RadarState
 import com.fabrice.spaceskysea.data.SettingsStore
@@ -134,10 +136,7 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                         m.position = GeoPoint(lat, lon)
                         m.rotation = ac.heading ?: 0f
                         m.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        m.icon = BitmapDrawable(mv.context.resources, drawAircraftBitmap(
-                            sizePx(altitudeSize(ac.altitudeMeters)),
-                            Color(0xFFD32F2F)
-                        ))
+                        m.icon = drawAircraftBitmap(mv.context, sizePx(altitudeSize(ac.altitudeMeters)), Color(0xFFD32F2F))
                         m.title = ac.callsign.ifEmpty { ac.icao24 }
                         m.setOnMarkerClickListener { _, _ ->
                             selectedAircraft = ac
@@ -153,7 +152,7 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                         m.position = GeoPoint(v.latitude, v.longitude)
                         m.rotation = v.course
                         m.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        m.icon = BitmapDrawable(mv.context.resources, drawAircraftBitmap(sizePx(18), Color(0xFFF57C00)))
+                        m.icon = drawAircraftBitmap(mv.context, sizePx(18), Color(0xFFF57C00))
                         m.title = v.name
                         m.setOnMarkerClickListener { _, _ ->
                             selectedVessel = v
@@ -311,37 +310,19 @@ private fun drawUserDot(context: Context, size: Int, color: Color): android.grap
     return android.graphics.drawable.BitmapDrawable(context.resources, bmp)
 }
 
-private fun drawAircraftBitmap(size: Int, color: Color): android.graphics.Bitmap {
+private fun drawAircraftBitmap(context: Context, size: Int, color: Color): android.graphics.drawable.Drawable {
+    val drawable = ContextCompat.getDrawable(context, R.drawable.ic_plane)?.mutate()
+    drawable?.setTint(color.toArgb())
     val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(bmp)
-    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-    paint.color = color.toArgb()
-    // Symbole d'avion Material (Icons.Filled.Flight) — reconnaissable au premier coup d'œil
-    val s = size.toFloat()
-    val path = android.graphics.Path().apply {
-        // Symbole d'avion Material (Icons.Filled.Flight), mis à l'échelle du bitmap
-        moveTo(0.5f * s, 0.08f * s)
-        lineTo(0.44f * s, 0.30f * s)
-        lineTo(0.26f * s, 0.26f * s)
-        lineTo(0.22f * s, 0.34f * s)
-        lineTo(0.40f * s, 0.42f * s)
-        lineTo(0.34f * s, 0.58f * s)
-        lineTo(0.18f * s, 0.54f * s)
-        lineTo(0.16f * s, 0.62f * s)
-        lineTo(0.36f * s, 0.70f * s)
-        lineTo(0.42f * s, 0.92f * s)
-        lineTo(0.50f * s, 0.92f * s)
-        lineTo(0.47f * s, 0.70f * s)
-        lineTo(0.62f * s, 0.62f * s)
-        lineTo(0.60f * s, 0.58f * s)
-        lineTo(0.45f * s, 0.56f * s)
-        lineTo(0.51f * s, 0.44f * s)
-        lineTo(0.63f * s, 0.40f * s)
-        lineTo(0.58f * s, 0.30f * s)
-        lineTo(0.44f * s, 0.32f * s)
-        lineTo(0.50f * s, 0.08f * s)
-        close()
-    }
-    canvas.drawPath(path, paint)
-    return bmp
+    // Le symbole Material pointe vers le haut-droit : rotation -45° pour viser le haut,
+    // puis le Marker applique le cap réel.
+    val matrix = android.graphics.Matrix()
+    matrix.setRotate(-45f, size / 2f, size / 2f)
+    canvas.save()
+    canvas.concat(matrix)
+    drawable?.setBounds(0, 0, size, size)
+    drawable?.draw(canvas)
+    canvas.restore()
+    return android.graphics.drawable.BitmapDrawable(context.resources, bmp)
 }

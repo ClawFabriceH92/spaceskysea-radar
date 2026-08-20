@@ -1,5 +1,9 @@
 package com.fabrice.spaceskysea.ui.binoculars
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +26,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -63,7 +68,21 @@ import kotlin.math.sin
 fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = viewModel()) {
     val s by vm.state.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
-    var mode by remember { mutableIntStateOf(0) } // 0 = horizontal, 1 = vertical
+    var mode by remember { mutableIntStateOf(0) } // 0 = horizontal, 1 = vertical, 2 = contrôleur, 3 = ciel
+
+    // Permission caméra demandée à l'entrée du mode Ciel
+    val context = LocalContext.current
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+    LaunchedEffect(mode) {
+        if (mode == 3 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -102,8 +121,13 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
             FilterChip(
                 selected = mode == 1,
                 onClick = { mode = 1 },
-                label = { Text("Vertical (ciel)") },
+                label = { Text("Vertical") },
             )
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 4.dp),
+        ) {
             FilterChip(
                 selected = mode == 2,
                 onClick = { mode = 2 },
@@ -112,7 +136,7 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
             FilterChip(
                 selected = mode == 3,
                 onClick = { mode = 3 },
-                label = { Text("Ciel") },
+                label = { Text("Ciel (caméra)") },
             )
         }
 
@@ -262,9 +286,9 @@ private fun ControllerRow(t: Target) {
         else -> Color(0xFFD32F2F)
     }
     val trend = when {
-        (t.verticalRateMs ?: 0f) > 1f -> "▲"
-        (t.verticalRateMs ?: 0f) < -1f -> "▼"
-        else -> "▶"
+        (t.verticalRateMs ?: 0f) > 1f -> "▲ monte"
+        (t.verticalRateMs ?: 0f) < -1f -> "▼ descend"
+        else -> "▶ niveau"
     }
     Card(
         modifier = Modifier
@@ -272,48 +296,58 @@ private fun ControllerRow(t: Target) {
             .padding(vertical = 3.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
     ) {
-        Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Canvas(Modifier.size(12.dp)) { drawCircle(altColor) }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "${t.label} $trend",
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                "${t.altitudeMeters?.let { "${it.toInt()} m" } ?: "?"}",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                "${t.distanceKm.roundToInt()} km",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        Row(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)) {
-            Text("Cap ${t.bearing.roundToInt()}° · ", style = MaterialTheme.typography.bodySmall)
-            t.speedKmh?.let { Text("${it.roundToInt()} km/h · ", style = MaterialTheme.typography.bodySmall) }
-            if (t.country.isNotBlank()) {
-                Text("🌍 ${t.country} · ", style = MaterialTheme.typography.bodySmall)
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Canvas(Modifier.size(12.dp)) { drawCircle(altColor) }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "${t.label}",
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    t.status.ifEmpty { "En vol" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                )
             }
-            t.geoAltitudeMeters?.let { Text("GPS ${it.toInt()} m · ", style = MaterialTheme.typography.bodySmall) }
-            t.squawk?.let { Text("Squawk $it · ", style = MaterialTheme.typography.bodySmall) }
-            Text("${t.icao24.uppercase()}", style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.weight(1f))
-            (t.verticalRateMs ?: 0f).let { vr ->
-                if (vr != 0f) {
-                    Text(
-                        if (vr > 0) "▲ ${(vr * 196.85f).roundToInt()} ft/min" else "▼ ${(-vr * 196.85f).roundToInt()} ft/min",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (vr > 0) Color(0xFF2E7D32) else Color(0xFFD32F2F),
-                    )
-                }
+            InfoLine("Altitude", "${t.altitudeMeters?.toInt() ?: "?"} m" +
+                (t.geoAltitudeMeters?.let { " (GPS ${it.toInt()} m)" } ?: ""))
+            InfoLine("Vitesse", t.speedKmh?.let { "${it.roundToInt()} km/h" } ?: "?")
+            InfoLine("Cap", "${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km · $trend")
+            InfoLine("Pays", t.country.ifEmpty { "?" })
+            t.squawk?.let { InfoLine("Squawk", it) }
+            InfoLine("ICAO24", t.icao24.uppercase())
+            if (t.originAirport != null || t.destinationAirport != null) {
+                InfoLine("✈️ Itinéraire", "${t.originAirport ?: "?"} → ${t.destinationAirport ?: "?"}")
+            }
+            t.approaching?.let { app ->
+                InfoLine(
+                    "Distance",
+                    if (app) "⟶ se rapproche" else "⟵ s'éloigne",
+                    color = if (app) Color(0xFF2E7D32) else Color(0xFFE65100),
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun InfoLine(label: String, value: String, color: Color = Color(0xFF37474F)) {
+    Row(Modifier.padding(top = 2.dp)) {
+        Text(
+            "$label : ",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF78909C),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            color = color,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+        )
     }
 }
 

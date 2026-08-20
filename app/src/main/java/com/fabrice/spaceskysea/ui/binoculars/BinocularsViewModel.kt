@@ -42,6 +42,8 @@ data class Target(
     val geoAltitudeMeters: Float? = null,
     val squawk: String? = null,
     val icao24: String = "",
+    val originAirport: String? = null,
+    val destinationAirport: String? = null,
 )
 
 data class BinocularsState(
@@ -76,6 +78,9 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
 
     // Historique des distances par avion (pour rapproche/éloigne)
     private val lastDistance = mutableMapOf<String, Float>()
+
+    // Cache des routes (départ/arrivée) par callsign — 1 seule requête par avion par session
+    private val routesCache = mutableMapOf<String, Pair<String, String>?>()
 
     private var pollingJob: Job? = null
 
@@ -146,6 +151,26 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
                     totalAircraft = result.aircraft.size,
                     apiBlocked = false,
                 )
+                // Départ/arrivée : 1 requête par avion, limité aux 12 plus proches, avec cache
+                val missing = all.take(12).filter { !routesCache.containsKey(it.label) }
+                for (t in missing) {
+                    val route = opensky.fetchRoute(t.label)
+                    routesCache[t.label] = route
+                }
+                if (missing.isNotEmpty()) {
+                    val updated = all.map { t ->
+                        if (routesCache.containsKey(t.label)) {
+                            t.copy(
+                                originAirport = routesCache[t.label]?.first,
+                                destinationAirport = routesCache[t.label]?.second,
+                            )
+                        } else t
+                    }
+                    _state.value = _state.value.copy(
+                        targets = updated.filter { angularDiff(it.bearing, _state.value.heading) <= 45f },
+                        allAircraft = updated,
+                    )
+                }
             }
             OpenSkyResult.QuotaExceeded -> {
                 _state.value = _state.value.copy(apiBlocked = true)
