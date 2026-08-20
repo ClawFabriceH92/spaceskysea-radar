@@ -132,11 +132,17 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                     radar.aircraft.forEach { ac ->
                         val lat = ac.latitude ?: return@forEach
                         val lon = ac.longitude ?: return@forEach
+                        // Couleur = tendance : bleu monte / rouge descend / gris niveau
+                        val color = when {
+                            (ac.verticalRateMs ?: 0f) > 1f -> Color(0xFF1E88E5)
+                            (ac.verticalRateMs ?: 0f) < -1f -> Color(0xFFD32F2F)
+                            else -> Color(0xFF616161)
+                        }
                         val m = Marker(mv)
                         m.position = GeoPoint(lat, lon)
                         m.rotation = ac.heading ?: 0f
                         m.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        m.icon = drawAircraftBitmap(mv.context, sizePx(altitudeSize(ac.altitudeMeters)), Color(0xFFD32F2F))
+                        m.icon = drawAircraftBitmap(mv.context, sizePx(sizeFromSpeed(ac.velocityMs)), color)
                         m.title = ac.callsign.ifEmpty { ac.icao24 }
                         m.setOnMarkerClickListener { _, _ ->
                             selectedAircraft = ac
@@ -293,6 +299,14 @@ private fun altitudeSize(altitude: Float?): Int = when {
     else -> 40
 }
 
+/** Taille de l'icône selon la taille de l'avion (approximée par la vitesse). */
+private fun sizeFromSpeed(velocityMs: Float?): Int = when {
+    velocityMs == null -> 18
+    velocityMs < 80f -> 18     // lent (< 290 km/h) : petit appareil
+    velocityMs < 200f -> 28    // moyen (290-720 km/h)
+    else -> 38                 // rapide (> 720 km/h) : gros appareil
+}
+
 private fun sizePx(dp: Int): Int = (dp * 2.75f).toInt()
 
 /** Point bleu pour la position de l'utilisateur (cercle plein + liseré blanc). */
@@ -311,11 +325,12 @@ private fun drawUserDot(context: Context, size: Int, color: Color): android.grap
 }
 
 private fun drawAircraftBitmap(context: Context, size: Int, color: Color): android.graphics.drawable.Drawable {
+    // Emoji ✈️ (Twemoji) choisi par Fabrice — teinté selon la tendance (bleu monte / rouge descend / gris niveau)
     val drawable = ContextCompat.getDrawable(context, R.drawable.ic_plane)?.mutate()
     drawable?.setTint(color.toArgb())
     val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(bmp)
-    // Le symbole Material pointe vers le haut-droit : rotation -45° pour viser le haut,
+    // L'emoji pointe vers le haut-droit : rotation -45° pour viser le haut,
     // puis le Marker applique le cap réel.
     val matrix = android.graphics.Matrix()
     matrix.setRotate(-45f, size / 2f, size / 2f)

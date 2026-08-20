@@ -14,12 +14,11 @@ data class SettingsUiState(
     val speedUnit: String,
     val aircraftLayer: Boolean,
     val vesselLayer: Boolean,
-    val openskyUser: String,
-    val openskyPass: String,
+    val openskyClientId: String,
+    val openskyClientSecret: String,
     val aisstreamKey: String,
     val backgroundTracking: Boolean,
 )
-
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val store = SettingsStore(application)
@@ -34,8 +33,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         speedUnit = store.speedUnit,
         aircraftLayer = store.aircraftLayerEnabled,
         vesselLayer = store.vesselLayerEnabled,
-        openskyUser = store.openskyUsername,
-        openskyPass = store.openskyPassword,
+        openskyClientId = store.openskyClientId,
+        openskyClientSecret = store.openskyClientSecret,
         aisstreamKey = store.aisstreamKey,
         backgroundTracking = store.backgroundTrackingEnabled,
     )
@@ -46,8 +45,28 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setSpeedUnit(u: String) { store.speedUnit = u; _state.value = readState() }
     fun setAircraftLayer(on: Boolean) { store.aircraftLayerEnabled = on; _state.value = readState() }
     fun setVesselLayer(on: Boolean) { store.vesselLayerEnabled = on; _state.value = readState() }
-    fun setOpenSkyUser(v: String) { store.openskyUsername = v; _state.value = readState() }
-    fun setOpenSkyPass(v: String) { store.openskyPassword = v; _state.value = readState() }
+    fun setOpenSkyClientId(v: String) { store.openskyClientId = v; _state.value = readState() }
+    fun setOpenSkyClientSecret(v: String) { store.openskyClientSecret = v; _state.value = readState() }
     fun setAisKey(v: String) { store.aisstreamKey = v; _state.value = readState() }
     fun setBackgroundTracking(on: Boolean) { store.backgroundTrackingEnabled = on; _state.value = readState() }
+
+    /**
+     * Importe les credentials OpenSky depuis un fichier credentials.json
+     * (format du portail) : {"clientId": "...", "clientSecret": "..."}.
+     */
+    fun importOpenSkyCredentials(uri: android.net.Uri): String? {
+        return try {
+            val input = getApplication<Application>().contentResolver.openInputStream(uri) ?: return "Fichier illisible"
+            val text = input.bufferedReader().use { it.readText() }
+            val json = org.json.JSONObject(text)
+            val cid = json.optString("clientId").ifBlank { json.optString("client_id") }
+            val secret = json.optString("clientSecret").ifBlank { json.optString("client_secret") }
+            if (cid.isBlank() || secret.isBlank()) return "Format invalide (clientId/clientSecret manquants)"
+            setOpenSkyClientId(cid)
+            setOpenSkyClientSecret(secret)
+            null // succès
+        } catch (e: Exception) {
+            "Erreur de lecture : ${e.message}"
+        }
+    }
 }

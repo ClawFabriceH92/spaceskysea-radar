@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -83,6 +85,8 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
+
+    var selectedTarget by remember { mutableStateOf<Target?>(null) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -142,9 +146,9 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
 
         when (mode) {
             0 -> HorizontalView(s)
-            1 -> VerticalSkyView(s)
+            1 -> VerticalSkyView(s, onTap = { selectedTarget = it })
             2 -> ControllerView(s)
-            else -> SkyView(s)
+            else -> SkyView(s, onTap = { selectedTarget = it })
         }
 
         if (s.apiBlocked) {
@@ -152,6 +156,41 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
                 "Quota OpenSky dépassé — réessai automatique dans 60 s",
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        // Fiche détail au tap sur un avion (mode Ciel / Vertical)
+        selectedTarget?.let { t ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { selectedTarget = null },
+                title = { Text("✈️ ${t.label}") },
+                text = {
+                    Column {
+                        InfoLine("Statut", t.status.ifEmpty { "En vol" })
+                        InfoLine("Pays", t.country.ifEmpty { "?" })
+                        InfoLine("Altitude", "${t.altitudeMeters?.toInt() ?: "?"} m" +
+                            (t.geoAltitudeMeters?.let { " (GPS ${it.toInt()} m)" } ?: ""))
+                        InfoLine("Vitesse", t.speedKmh?.let { "${it.roundToInt()} km/h" } ?: "?")
+                        InfoLine("Cap", "${t.bearing.roundToInt()}°")
+                        InfoLine("Distance", "${t.distanceKm.roundToInt()} km")
+                        InfoLine("Tendance", when {
+                            (t.verticalRateMs ?: 0f) > 1f -> "▲ monte"
+                            (t.verticalRateMs ?: 0f) < -1f -> "▼ descend"
+                            else -> "▶ niveau"
+                        })
+                        t.approaching?.let { app ->
+                            InfoLine("Évolution", if (app) "⟶ se rapproche" else "⟵ s'éloigne")
+                        }
+                        if (t.originAirport != null || t.destinationAirport != null) {
+                            InfoLine("Itinéraire", "${t.originAirport ?: "?"} → ${t.destinationAirport ?: "?"}")
+                        }
+                        t.squawk?.let { InfoLine("Squawk", it) }
+                        InfoLine("ICAO24", t.icao24.uppercase())
+                    }
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = { selectedTarget = null }) { Text("Fermer") }
+                },
             )
         }
     }
@@ -195,40 +234,41 @@ private fun TargetCard(t: Target) {
         else -> "▶ niveau"
     }
     val trendColor = when {
-        vr > 1f -> Color(0xFF2E7D32)
-        vr < -1f -> Color(0xFFD32F2F)
-        else -> Color(0xFF546E7A)
+        vr > 1f -> Color(0xFF1B5E20)
+        vr < -1f -> Color(0xFFB71C1C)
+        else -> Color(0xFF455A64)
     }
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f)),
+            .padding(vertical = 3.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
     ) {
-        Row(
-            Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("✈️ ${t.label}", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
-            Text("${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km")
-        }
-        Row(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
-            if (t.status.isNotBlank()) {
-                Text("${t.status} · ", style = MaterialTheme.typography.bodySmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("✈️ ${t.label}", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    t.status.ifEmpty { "En vol" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                )
             }
-            t.altitudeMeters?.let { Text("Alt ${it.toInt()} m · ", style = MaterialTheme.typography.bodySmall) }
-            t.speedKmh?.let { Text("${it.roundToInt()} km/h · ", style = MaterialTheme.typography.bodySmall) }
-            if (t.country.isNotBlank()) {
-                Text("🌍 ${t.country} · ", style = MaterialTheme.typography.bodySmall)
-            }
-            Text(trend, style = MaterialTheme.typography.bodySmall, color = trendColor)
+            InfoLine("Altitude", "${t.altitudeMeters?.toInt() ?: "?"} m")
+            InfoLine("Vitesse", t.speedKmh?.let { "${it.roundToInt()} km/h" } ?: "?")
+            InfoLine("Position", "${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km")
+            InfoLine("Pays", t.country.ifEmpty { "?" })
+            InfoLine("Tendance", trend, color = trendColor)
             t.approaching?.let { app ->
-                if (app) {
-                    Text(" · ⟶ se rapproche", style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32))
-                } else {
-                    Text(" · ⟵ s'éloigne", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE65100))
-                }
+                InfoLine(
+                    "Distance",
+                    if (app) "⟶ se rapproche" else "⟵ s'éloigne",
+                    color = if (app) Color(0xFF1B5E20) else Color(0xFF4E342E),
+                )
+            }
+            if (t.originAirport != null || t.destinationAirport != null) {
+                InfoLine("Itinéraire", "${t.originAirport ?: "?"} → ${t.destinationAirport ?: "?"}")
             }
         }
     }
@@ -327,7 +367,7 @@ private fun ControllerRow(t: Target) {
                 InfoLine(
                     "Distance",
                     if (app) "⟶ se rapproche" else "⟵ s'éloigne",
-                    color = if (app) Color(0xFF2E7D32) else Color(0xFFE65100),
+                    color = if (app) Color(0xFF1B5E20) else Color(0xFF4E342E),
                 )
             }
         }
@@ -357,7 +397,7 @@ private fun InfoLine(label: String, value: String, color: Color = Color(0xFF3747
  * on voit les avions « posés » dans le ciel au-dessus de la direction visée.
  */
 @Composable
-private fun VerticalSkyView(s: BinocularsState) {
+private fun VerticalSkyView(s: BinocularsState, onTap: (Target) -> Unit) {
     val maxDist = s.maxDistanceKm.coerceAtLeast(10)
     val maxAlt = 12_000f
     val textMeasurer = rememberTextMeasurer()
@@ -473,7 +513,7 @@ private fun VerticalSkyView(s: BinocularsState) {
  * calculée) et les avions en surimpression (gyroscope : cap + inclinaison).
  */
 @Composable
-private fun SkyView(s: BinocularsState) {
+private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
     val textMeasurer = rememberTextMeasurer()
     val starLabel = TextStyle(fontSize = 9.sp, color = Color(0xFFFFF59D))
     val planeLabel = TextStyle(fontSize = 10.sp, color = Color(0xFFFFCDD2))
@@ -496,7 +536,24 @@ private fun SkyView(s: BinocularsState) {
                 .height(400.dp)
         ) {
             CameraPreview(Modifier.fillMaxSize())
-            Canvas(Modifier.fillMaxSize()) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(s.targets) {
+                        detectTapGestures { offset ->
+                            // Conversion écran → (azimut, élévation)
+                            val az = s.heading - fovAz + (offset.x / size.width.toFloat()) * (2 * fovAz)
+                            val alt = s.pitchDeg - fovAlt + (1f - offset.y / size.height.toFloat()) * (2 * fovAlt)
+                            // L'avion le plus proche du point touché
+                            val hit = s.targets.minByOrNull { t ->
+                                val dAz = angularDiff(t.bearing, az)
+                                val dAlt = kotlin.math.abs(t.elevationDeg - alt)
+                                dAz * dAz + dAlt * dAlt
+                            }
+                            if (hit != null) onTap(hit)
+                        }
+                    }
+            ) {
                 val w = size.width
                 val h = size.height
 

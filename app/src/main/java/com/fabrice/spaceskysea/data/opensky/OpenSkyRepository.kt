@@ -8,8 +8,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.Credentials
+import kotlinx.serialization.json.longOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
@@ -35,6 +37,46 @@ class OpenSkyRepository(private val settings: SettingsStore) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    // Token OAuth2 en cache (Keycloak OpenSky)
+    private var cachedToken: String? = null
+    private var tokenExpiresAtMs: Long = 0L
+
+    /** Header Authorization : Bearer si credentials OAuth2 configurés. */
+    private fun authHeader(): String? {
+        if (!settings.hasOpenSkyCredentials) return null
+        val token = getToken() ?: return null
+        return "Bearer $token"
+    }
+
+    /** Obtient (ou rafraîchit) le token OAuth2 via Keycloak OpenSky. */
+    private fun getToken(): String? {
+        val now = System.currentTimeMillis()
+        if (!cachedToken.isNullOrBlank() && now < tokenExpiresAtMs - 60_000) return cachedToken
+        return try {
+            val form = "grant_type=client_credentials" +
+                "&client_id=${settings.openskyClientId}" +
+                "&client_secret=${settings.openskyClientSecret}"
+            val req = Request.Builder()
+                .url("https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token")
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .post(okhttp3.RequestBody.create(
+                    "application/x-www-form-urlencoded".toMediaType(), form
+                ))
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.code != 200) return null
+                val body = resp.body?.string() ?: return null
+                val obj = json.parseToJsonElement(body).jsonObject
+                val token = obj["access_token"]?.jsonPrimitive?.contentOrNull ?: return null
+                cachedToken = token
+                tokenExpiresAtMs = now + (obj["expires_in"]?.jsonPrimitive?.longOrNull ?: 86400L) * 1000
+                token
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     suspend fun fetchAircrafts(lat: Double, lon: Double, radiusKm: Double): OpenSkyResult {
         val bb = GeoUtils.boundingBox(lat, lon, radiusKm)
         return fetchBoundingBox(bb.latMin, bb.lonMin, bb.latMax, bb.lonMax)
@@ -47,12 +89,7 @@ class OpenSkyRepository(private val settings: SettingsStore) {
         val url = "https://opensky-network.org/api/states/all" +
             "?lamin=$latMin&lomin=$lonMin&lamax=$latMax&lomax=$lonMax"
         val builder = Request.Builder().url(url).header("User-Agent", "SpaceSkySeaRadar/1.0")
-        if (settings.hasOpenSkyCredentials) {
-            builder.header(
-                "Authorization",
-                Credentials.basic(settings.openskyUsername, settings.openskyPassword)
-            )
-        }
+        authHeader()?.let { builder.header("Authorization", it) }
         val response = client.newCall(builder.build()).execute()
         try {
             when (response.code) {
@@ -70,26 +107,26 @@ class OpenSkyRepository(private val settings: SettingsStore) {
         }
     }
 
-    /** Route d'un vol : [origine, destination] (codes ICAO 4 lettres, ex. LFPG/LIRF). */
-    suspend fun fetchRoute(callsign: String): Pair<String, String>? = withContext(Dispatchers.IO) {
+    /** Route d'un vol : [origine, destination] (codes IATA 3 lettres, ex. CDG/ORY).
+     *  Utilise /api/flights/aircraft (vols d'un avion sur 24 h) — plus fiable que /api/routes. */
+    suspend fun fetchFlightRoute(icao24: String): Pair<String, String>? = withContext(Dispatchers.IO) {
         try {
-            val url = "https://opensky-network.org/api/routes?callsign=$callsign"
+            val now = System.currentTimeMillis() / 1000
+            val begin = now - 24 * 3600
+            val url = "https://opensky-network.org/api/flights/aircraft" +
+                "?icao24=$icao24&begin=$begin&end=$now"
             val builder = Request.Builder().url(url).header("User-Agent", "SpaceSkySeaRadar/1.0")
-            if (settings.hasOpenSkyCredentials) {
-                builder.header(
-                    "Authorization",
-                    Credentials.basic(settings.openskyUsername, settings.openskyPassword)
-                )
-            }
+            authHeader()?.let { builder.header("Authorization", it) }
             val resp = client.newCall(builder.build()).execute()
             try {
                 if (resp.code != 200) return@withContext null
                 val body = resp.body?.string() ?: return@withContext null
                 val arr = json.parseToJsonElement(body).jsonArray
-                if (arr.size >= 2) {
-                    val origin = arr[0].jsonPrimitive.contentOrNull
-                    val dest = arr[1].jsonPrimitive.contentOrNull
-                    if (origin != null && dest != null && origin.length == 4 && dest.length == 4) {
+                for (el in arr) {
+                    val obj = el.jsonObject
+                    val origin = obj["estDepartureAirport"]?.jsonPrimitive?.contentOrNull
+                    val dest = obj["estArrivalAirport"]?.jsonPrimitive?.contentOrNull
+                    if (origin != null && dest != null && origin.length == 3 && dest.length == 3) {
                         return@withContext origin to dest
                     }
                 }

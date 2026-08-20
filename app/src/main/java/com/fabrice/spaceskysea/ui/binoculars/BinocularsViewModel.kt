@@ -151,18 +151,18 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
                     totalAircraft = result.aircraft.size,
                     apiBlocked = false,
                 )
-                // Départ/arrivée : 1 requête par avion, limité aux 12 plus proches, avec cache
-                val missing = all.take(12).filter { !routesCache.containsKey(it.label) }
+                // Départ/arrivée : 1 requête par avion (par icao24), limité aux 8 plus proches, avec cache
+                val missing = all.take(8).filter { !routesCache.containsKey(it.icao24) }
                 for (t in missing) {
-                    val route = opensky.fetchRoute(t.label)
-                    routesCache[t.label] = route
+                    val route = opensky.fetchFlightRoute(t.icao24)
+                    routesCache[t.icao24] = route
                 }
                 if (missing.isNotEmpty()) {
                     val updated = all.map { t ->
-                        if (routesCache.containsKey(t.label)) {
+                        if (routesCache.containsKey(t.icao24)) {
                             t.copy(
-                                originAirport = routesCache[t.label]?.first,
-                                destinationAirport = routesCache[t.label]?.second,
+                                originAirport = routesCache[t.icao24]?.first,
+                                destinationAirport = routesCache[t.icao24]?.second,
                             )
                         } else t
                     }

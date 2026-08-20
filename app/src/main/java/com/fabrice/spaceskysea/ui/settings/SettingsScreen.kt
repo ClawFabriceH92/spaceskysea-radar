@@ -11,6 +11,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,17 +63,55 @@ fun SettingsScreen(
         ToggleRow("Afficher les bateaux", s.vesselLayer) { settingsViewModel.setVesselLayer(it) }
 
         SectionTitle("Clés API")
+        var importError by remember { mutableStateOf<String?>(null) }
+        // Import du fichier credentials.json (portail OpenSky)
+        val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.GetContent()
+        ) { uri: android.net.Uri? ->
+            if (uri != null) {
+                importError = settingsViewModel.importOpenSkyCredentials(uri)
+            }
+        }
+        if (s.openskyClientId.isNotBlank()) {
+            Text(
+                "✅ OpenSky authentifié : ${s.openskyClientId}",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else {
+            Text(
+                "ℹ️ OpenSky anonyme (400 req/jour) — importez vos credentials pour 4000 req/jour + aéroports",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+        Button(
+            onClick = { filePicker.launch("application/json") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+        ) {
+            Text("📥 Importer credentials.json (OpenSky)")
+        }
+        importError?.let {
+            Text(
+                it,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            TextButton(onClick = { importError = null }) { Text("Fermer") }
+        }
         OutlinedTextField(
-            value = s.openskyUser,
-            onValueChange = { settingsViewModel.setOpenSkyUser(it) },
-            label = { Text("OpenSky utilisateur (optionnel)") },
+            value = s.openskyClientId,
+            onValueChange = { settingsViewModel.setOpenSkyClientId(it) },
+            label = { Text("OpenSky clientId") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
-            value = s.openskyPass,
-            onValueChange = { settingsViewModel.setOpenSkyPass(it) },
-            label = { Text("OpenSky mot de passe (optionnel)") },
+            value = s.openskyClientSecret,
+            onValueChange = { settingsViewModel.setOpenSkyClientSecret(it) },
+            label = { Text("OpenSky clientSecret") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )

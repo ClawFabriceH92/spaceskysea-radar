@@ -55,13 +55,13 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean("layer_vessel", true)
         set(v) = prefs.edit().putBoolean("layer_vessel", v).apply()
 
-    var openskyUsername: String
-        get() = prefs.getString("opensky_user", "") ?: ""
-        set(v) = prefs.edit().putString("opensky_user", v).apply()
+    var openskyClientId: String
+        get() = prefs.getString("opensky_cid", "") ?: ""
+        set(v) = prefs.edit().putString("opensky_cid", v).apply()
 
-    var openskyPassword: String
-        get() = prefs.getString("opensky_pass", "") ?: ""
-        set(v) = prefs.edit().putString("opensky_pass", v).apply()
+    var openskyClientSecret: String
+        get() = prefs.getString("opensky_csecret", "") ?: ""
+        set(v) = prefs.edit().putString("opensky_csecret", v).apply()
 
     var aisstreamKey: String
         get() = prefs.getString("aisstream_key", "") ?: ""
@@ -72,7 +72,7 @@ class SettingsStore(context: Context) {
         set(v) = prefs.edit().putBoolean("background_tracking", v).apply()
 
     val hasOpenSkyCredentials: Boolean
-        get() = openskyUsername.isNotBlank() && openskyPassword.isNotBlank()
+        get() = openskyClientId.isNotBlank() && openskyClientSecret.isNotBlank()
 
     val hasAisstreamKey: Boolean
         get() = aisstreamKey.isNotBlank()
