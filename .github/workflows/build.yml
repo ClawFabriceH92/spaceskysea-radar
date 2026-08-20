@@ -1,0 +1,58 @@
+name: Build APK
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Build release APK (signé)
+        run: ./gradlew assembleRelease --no-daemon
+        env:
+          SPACESKYSEA_KEYSTORE_B64: ${{ secrets.SPACESKYSEA_KEYSTORE_B64 }}
+          SPACESKYSEA_KEYSTORE_PASSWORD: ${{ secrets.SPACESKYSEA_KEYSTORE_PASSWORD }}
+          SPACESKYSEA_KEY_ALIAS: ${{ secrets.SPACESKYSEA_KEY_ALIAS }}
+          SPACESKYSEA_KEY_PASSWORD: ${{ secrets.SPACESKYSEA_KEY_PASSWORD }}
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --rerun-tasks --no-daemon
+
+      - name: Prepare APK artifacts
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/spaceskysea-radar-v${GITHUB_REF_NAME}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/spaceskysea-radar-${GITHUB_REF_NAME}-debug.apk"
+          # Fichier version.json pour l'auto-update (vérifié par l'app au lancement)
+          echo "{\"version\": \"${GITHUB_REF_NAME}\", \"apk_url\": \"https://github.com/ClawFabriceH92/spaceskysea-radar/releases/download/${GITHUB_REF_NAME}/spaceskysea-radar-v${GITHUB_REF_NAME}.apk\"}" > dist/version.json
+          ls -la dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: SpaceSkySea Radar ${{ github.ref_name }}
+          files: |
+            dist/*.apk
+            dist/version.json
+          generate_release_notes: false

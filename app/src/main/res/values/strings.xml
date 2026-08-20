@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SpaceSkySea Radar</string>
+    <string name="tab_map">Carte</string>
+    <string name="tab_settings">Paramètres</string>
+    <string name="tab_flight">Vol</string>
+    <string name="recenter">Recentrer</string>
+    <string name="speed_kmh">km/h</string>
+    <string name="speed_knots">nœuds</string>
+    <string name="speed_mph">mph</string>
+</resources>

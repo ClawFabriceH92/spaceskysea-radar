@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Avion (blanc) pointant vers le haut -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,22 L49,32 L41,35 L43,39 L53,36 L53,50 L46,55 L48,59 L54,57 L60,59 L62,55 L55,50 L55,36 L65,39 L67,35 L59,32 Z" />
+    <!-- Vague (bleu clair) -->
+    <path
+        android:fillColor="#BBDEFB"
+        android:pathData="M10,74 Q24,64 38,74 Q52,84 66,74 Q80,64 94,74 L94,88 L10,88 Z" />
+    <!-- Hélice -->
+    <path
+        android:fillColor="#FFEB3B"
+        android:pathData="M50,18 L58,18 L56,24 L52,24 Z" />
+</vector>
