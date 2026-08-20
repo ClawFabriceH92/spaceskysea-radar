@@ -216,6 +216,10 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
 
     // Fiche détail avion
     selectedAircraft?.let { ac ->
+        val route by vm.selectedRoute.collectAsState()
+        LaunchedEffect(ac.icao24) {
+            vm.loadAircraftRoute(ac.icao24, ac.callsign)
+        }
         Card(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -226,10 +230,32 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
             Column(Modifier.padding(16.dp)) {
                 Text("✈️ ${ac.callsign.ifEmpty { ac.icao24 }}", style = MaterialTheme.typography.titleMedium)
                 Text("Pays : ${ac.originCountry.ifEmpty { "?" }}")
-                Text("Altitude : ${ac.altitudeMeters?.let { "${it.toInt()} m" } ?: "?"}")
+                Text(
+                    "Altitude : " + if (ac.onGround == true) "0 m (au sol)"
+                    else "${ac.altitudeMeters?.let { "${it.toInt()} m" } ?: "?"}"
+                )
                 Text("Vitesse : ${ac.velocityMs?.let { "${(it * 3.6).toInt()} km/h" } ?: "?"}")
                 Text("Cap : ${ac.heading?.toInt() ?: "?"}°")
-                TextButton(onClick = { selectedAircraft = null }) { Text("Fermer") }
+                Text(
+                    "Tendance : " + when {
+                        (ac.verticalRateMs ?: 0f) > 1f -> "▲ monte"
+                        (ac.verticalRateMs ?: 0f) < -1f -> "▼ descend"
+                        else -> "▶ niveau"
+                    }
+                )
+                if (route != null) {
+                    Text(
+                        "🛫 Itinéraire : ${route!!.first} → ${route!!.second}",
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    )
+                } else {
+                    Text(
+                        "🛫 Itinéraire : recherche… (ou importez credentials.json dans Paramètres)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF78909C),
+                    )
+                }
+                TextButton(onClick = { selectedAircraft = null; vm.clearSelectedRoute() }) { Text("Fermer") }
             }
         }
     }

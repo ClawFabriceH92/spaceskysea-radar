@@ -174,7 +174,7 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
                     Column {
                         InfoLine("Statut", t.status.ifEmpty { "En vol" })
                         InfoLine("Pays", t.country.ifEmpty { "?" })
-                        InfoLine("Altitude", "${t.altitudeMeters?.toInt() ?: "?"} m" +
+                        InfoLine("Altitude", altitudeText(t) +
                             (t.geoAltitudeMeters?.let { " (GPS ${it.toInt()} m)" } ?: ""))
                         InfoLine("Vitesse", t.speedKmh?.let { "${it.roundToInt()} km/h" } ?: "?")
                         InfoLine("Cap", "${t.bearing.roundToInt()}°")
@@ -261,7 +261,7 @@ private fun TargetCard(t: Target) {
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                 )
             }
-            InfoLine("Altitude", "${t.altitudeMeters?.toInt() ?: "?"} m")
+            InfoLine("Altitude", altitudeText(t))
             InfoLine("Vitesse", t.speedKmh?.let { "${it.roundToInt()} km/h" } ?: "?")
             InfoLine("Position", "${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km")
             InfoLine("Pays", t.country.ifEmpty { "?" })
@@ -359,7 +359,7 @@ private fun ControllerRow(t: Target) {
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                 )
             }
-            InfoLine("Altitude", "${t.altitudeMeters?.toInt() ?: "?"} m" +
+            InfoLine("Altitude", altitudeText(t) +
                 (t.geoAltitudeMeters?.let { " (GPS ${it.toInt()} m)" } ?: ""))
             InfoLine("Vitesse", t.speedKmh?.let { "${it.roundToInt()} km/h" } ?: "?")
             InfoLine("Cap", "${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km · $trend")
@@ -379,6 +379,11 @@ private fun ControllerRow(t: Target) {
         }
     }
 }
+
+/** Altitude affichée : 0 m si l'avion est au sol (stationnement/roulage). */
+private fun altitudeText(t: Target): String =
+    if (t.status == "Stationnement" || t.status == "Au sol (roulage)") "0 m"
+    else "${t.altitudeMeters?.toInt() ?: "?"} m"
 
 @Composable
 private fun InfoLine(label: String, value: String, color: Color = Color(0xFF37474F)) {
