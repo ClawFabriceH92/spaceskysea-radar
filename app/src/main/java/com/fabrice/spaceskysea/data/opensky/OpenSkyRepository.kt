@@ -154,8 +154,13 @@ class OpenSkyRepository(private val settings: SettingsStore) {
                     val obj = el.jsonObject
                     val origin = obj["estDepartureAirport"]?.jsonPrimitive?.contentOrNull
                     val dest = obj["estArrivalAirport"]?.jsonPrimitive?.contentOrNull
-                    if (origin != null && dest != null && origin.length == 3 && dest.length == 3) {
-                        return@withContext origin to dest
+                    // IMPORTANT : un avion EN VOL a souvent l'arrivée encore vide (None).
+                    // On retourne dès que le DÉPART est connu ; l'arrivée s'affiche quand dispo.
+                    if (origin != null && origin.length == 3) {
+                        return@withContext origin to (dest?.takeIf { it.length == 3 } ?: "?")
+                    }
+                    if (dest != null && dest.length == 3) {
+                        return@withContext "?" to dest
                     }
                 }
                 null
