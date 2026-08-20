@@ -82,6 +82,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     aircraftCount = result.aircraft.size,
                     lastUpdateMs = System.currentTimeMillis(),
                     loading = false,
+                    rateLimitRemaining = opensky.lastRateLimitRemaining,
                     apiBlocked = false,
                     apiBlockedSource = null,
                 )
@@ -89,13 +90,17 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             OpenSkyResult.QuotaExceeded -> {
                 _radar.value = _radar.value.copy(
                     loading = false,
+                    rateLimitRemaining = opensky.lastRateLimitRemaining,
                     apiBlocked = true,
                     apiBlockedSource = "OpenSky",
                 )
                 delay(60_000)
             }
             is OpenSkyResult.Error -> {
-                _radar.value = _radar.value.copy(loading = false)
+                _radar.value = _radar.value.copy(
+                    loading = false,
+                    rateLimitRemaining = opensky.lastRateLimitRemaining,
+                )
             }
         }
     }

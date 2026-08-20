@@ -45,6 +45,10 @@ class OpenSkyRepository(private val settings: SettingsStore) {
     // ne plus réessayer pendant 10 min pour ne pas marteler le serveur
     private var flightRouteCooldownUntilMs: Long = 0L
 
+    // Nombre de requêtes restantes (header x-rate-limit-remaining OpenSky)
+    @Volatile
+    var lastRateLimitRemaining: Int? = null
+
     /** Header Authorization : Bearer si credentials OAuth2 configurés. */
     private fun authHeader(): String? {
         if (!settings.hasOpenSkyCredentials) return null
@@ -110,6 +114,7 @@ class OpenSkyRepository(private val settings: SettingsStore) {
             "?lamin=$latMin&lomin=$lonMin&lamax=$latMax&lomax=$lonMax"
         val builder = Request.Builder().url(url).header("User-Agent", "SpaceSkySeaRadar/1.0")
         val response = executeAuth(builder)
+        response.header("x-rate-limit-remaining")?.toIntOrNull()?.let { lastRateLimitRemaining = it }
         try {
             when (response.code) {
                 200 -> {
