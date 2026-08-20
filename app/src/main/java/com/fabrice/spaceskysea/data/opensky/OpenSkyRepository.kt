@@ -194,7 +194,10 @@ class OpenSkyRepository(private val settings: SettingsStore) {
                         null
                     }
                     429 -> {
-                        flightRouteCooldownUntilMs = System.currentTimeMillis() + 10 * 60_000
+                        // Le serveur indique le temps exact d'attente (X-Rate-Limit-Retry-After-Seconds)
+                        val retryAfter = resp.header("x-rate-limit-retry-after-seconds")?.toLongOrNull() ?: 600L
+                        flightRouteCooldownUntilMs = System.currentTimeMillis() +
+                            (retryAfter * 1000).coerceAtMost(24 * 3600_000L)
                         return@withContext "LIMIT" to "LIMIT" // marqueur : quota/rate limit
                     }
                     else -> null

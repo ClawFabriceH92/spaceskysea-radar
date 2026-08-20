@@ -304,7 +304,8 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                         }
                         route != null && route!!.first == "LIMIT" -> {
                             Text(
-                                "⏳ Quota OpenSky atteint (trop de requêtes) — attendez quelques secondes puis réessayez",
+                                "⏳ Limite OpenSky sur l'itinéraire épuisée pour aujourd'hui — le serveur bloque l'API (~22 h). " +
+                                    "Le radar avions continue normalement ; réessayez demain.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFFE65100),
                             )
