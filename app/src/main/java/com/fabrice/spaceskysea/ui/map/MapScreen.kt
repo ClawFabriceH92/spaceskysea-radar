@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -214,50 +215,64 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
         )
     }
 
-    // Fiche détail avion
+    // Fiche détail avion (pop-up avec indicateur de chargement pendant la requête itinéraire)
     selectedAircraft?.let { ac ->
         val route by vm.selectedRoute.collectAsState()
+        val routeLoading by vm.routeLoading.collectAsState()
         LaunchedEffect(ac.icao24) {
             vm.loadAircraftRoute(ac.icao24, ac.callsign)
         }
-        Card(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(16.dp)
-                .fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.95f)),
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Text("✈️ ${ac.callsign.ifEmpty { ac.icao24 }}", style = MaterialTheme.typography.titleMedium)
-                Text("Pays : ${ac.originCountry.ifEmpty { "?" }}")
-                Text(
-                    "Altitude : " + if (ac.onGround == true) "0 m (au sol)"
-                    else "${ac.altitudeMeters?.let { "${it.toInt()} m" } ?: "?"}"
-                )
-                Text("Vitesse : ${ac.velocityMs?.let { "${(it * 3.6).toInt()} km/h" } ?: "?"}")
-                Text("Cap : ${ac.heading?.toInt() ?: "?"}°")
-                Text(
-                    "Tendance : " + when {
-                        (ac.verticalRateMs ?: 0f) > 1f -> "▲ monte"
-                        (ac.verticalRateMs ?: 0f) < -1f -> "▼ descend"
-                        else -> "▶ niveau"
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { selectedAircraft = null; vm.clearSelectedRoute() },
+            title = { Text("✈️ ${ac.callsign.ifEmpty { ac.icao24 }}") },
+            text = {
+                Column {
+                    Text("Pays : ${ac.originCountry.ifEmpty { "?" }}")
+                    Text(
+                        "Altitude : " + if (ac.onGround == true) "0 m (au sol)"
+                        else "${ac.altitudeMeters?.let { "${it.toInt()} m" } ?: "?"}"
+                    )
+                    Text("Vitesse : ${ac.velocityMs?.let { "${(it * 3.6).toInt()} km/h" } ?: "?"}")
+                    Text("Cap : ${ac.heading?.toInt() ?: "?"}°")
+                    Text(
+                        "Tendance : " + when {
+                            (ac.verticalRateMs ?: 0f) > 1f -> "▲ monte"
+                            (ac.verticalRateMs ?: 0f) < -1f -> "▼ descend"
+                            else -> "▶ niveau"
+                        }
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    when {
+                        routeLoading -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text("Recherche de l'itinéraire…", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        route != null -> {
+                            Text(
+                                "🛫 Itinéraire : ${route!!.first} → ${route!!.second}",
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            )
+                        }
+                        else -> {
+                            Text(
+                                "🛫 Itinéraire : non disponible (importez credentials.json dans Paramètres pour l'activer)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF78909C),
+                            )
+                        }
                     }
-                )
-                if (route != null) {
-                    Text(
-                        "🛫 Itinéraire : ${route!!.first} → ${route!!.second}",
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                    )
-                } else {
-                    Text(
-                        "🛫 Itinéraire : recherche… (ou importez credentials.json dans Paramètres)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF78909C),
-                    )
                 }
+            },
+            confirmButton = {
                 TextButton(onClick = { selectedAircraft = null; vm.clearSelectedRoute() }) { Text("Fermer") }
-            }
-        }
+            },
+        )
     }
 
     // Fiche détail navire

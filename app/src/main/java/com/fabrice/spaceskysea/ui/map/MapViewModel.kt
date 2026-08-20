@@ -36,6 +36,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedRoute = MutableStateFlow<Pair<String, String>?>(null)
     val selectedRoute: StateFlow<Pair<String, String>?> = _selectedRoute.asStateFlow()
 
+    private val _routeLoading = MutableStateFlow(false)
+    val routeLoading: StateFlow<Boolean> = _routeLoading.asStateFlow()
+
     private var pollingJob: Job? = null
 
     init {
@@ -108,14 +111,17 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     /** Charge l'itinéraire (départ → arrivée) d'un avion au tap. */
     fun loadAircraftRoute(icao24: String, callsign: String) {
         _selectedRoute.value = null
+        _routeLoading.value = true
         viewModelScope.launch {
             val route = opensky.fetchFlightRoute(icao24)
             _selectedRoute.value = route
+            _routeLoading.value = false
         }
     }
 
     fun clearSelectedRoute() {
         _selectedRoute.value = null
+        _routeLoading.value = false
     }
 
     override fun onCleared() {
