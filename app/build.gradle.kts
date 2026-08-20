@@ -12,16 +12,21 @@ plugins {
 // Signature release (auto-update GitHub Releases) — même pattern que
 // network-scanner : keystore en B64 via env (CI) ou fichier local (dev).
 // ---------------------------------------------------------------------------
-val localKeystore = File("/root/.secrets/keystores-android/spaceskysea-release.keystore")
-val localEnvFiles = listOf(
+val localKeystore = listOf(
+    File("/root/.secrets/keystores-android/spaceskysea-release.keystore"),
+    File(System.getProperty("user.home"), ".secrets/keystores-android/spaceskysea-release.keystore")
+).firstOrNull { it.exists() }
+val secretFiles = listOf(
     File("/root/.secrets/keystores-android/spaceskysea-release.env"),
-    File("/root/.secrets/keystores-android/passwords.env")
-)
+    File("/root/.secrets/keystores-android/passwords.env"),
+    File(System.getProperty("user.home"), ".secrets/keystores-android/spaceskysea-release.env"),
+    File(System.getProperty("user.home"), ".secrets/keystores-android/passwords.env")
+).filter { it.exists() }
 
 fun secret(envName: String, key: String): String? {
     val fromEnv = System.getenv(envName)
     if (!fromEnv.isNullOrBlank()) return fromEnv
-    for (f in localEnvFiles) {
+    for (f in secretFiles) {
         if (!f.exists()) continue
         f.readLines().forEach { line ->
             val idx = line.indexOf('=')
@@ -46,7 +51,7 @@ if (!releaseKeystoreB64.isNullOrBlank()) {
     f.parentFile?.mkdirs()
     f.writeBytes(Base64.getDecoder().decode(releaseKeystoreB64.trim()))
     releaseKeystoreFile = f
-} else if (localKeystore.exists()) {
+} else if (localKeystore?.exists() == true) {
     releaseKeystoreFile = localKeystore
 }
 
@@ -60,8 +65,8 @@ android {
         applicationId = "com.fabrice.spaceskysea"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "1.1.4"
+        versionCode = 16
+        versionName = "1.1.5"
     }
 
     signingConfigs {

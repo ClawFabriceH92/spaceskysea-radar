@@ -72,6 +72,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun refreshAircraft(pos: UserPosition) {
+        _radar.value = _radar.value.copy(loading = true)
         when (val result = opensky.fetchAircrafts(
             pos.latitude, pos.longitude, settings.aircraftRadiusKm.toDouble()
         )) {
@@ -80,18 +81,22 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     aircraft = result.aircraft,
                     aircraftCount = result.aircraft.size,
                     lastUpdateMs = System.currentTimeMillis(),
+                    loading = false,
                     apiBlocked = false,
                     apiBlockedSource = null,
                 )
             }
             OpenSkyResult.QuotaExceeded -> {
                 _radar.value = _radar.value.copy(
+                    loading = false,
                     apiBlocked = true,
                     apiBlockedSource = "OpenSky",
                 )
                 delay(60_000)
             }
-            is OpenSkyResult.Error -> Unit
+            is OpenSkyResult.Error -> {
+                _radar.value = _radar.value.copy(loading = false)
+            }
         }
     }
 

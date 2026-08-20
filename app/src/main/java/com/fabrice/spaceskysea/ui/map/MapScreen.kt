@@ -20,6 +20,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
@@ -110,6 +111,46 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
     }
 
     Box(modifier = modifier.fillMaxSize()) {
+        // Indicateur de chargement (sablier) en haut à droite : visible pendant
+        // la récupération des données, ✓ vert quand tout est à jour.
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            color = Color.White.copy(alpha = 0.9f),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (radar.loading) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Mise à jour…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF455A64),
+                    )
+                } else if (radar.lastUpdateMs > 0L) {
+                    Text(
+                        "✓",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF1B5E20),
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "À jour",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF1B5E20),
+                    )
+                }
+            }
+        }
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->

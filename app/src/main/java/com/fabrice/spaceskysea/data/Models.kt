@@ -67,6 +67,7 @@ data class RadarState(
     val aircraftCount: Int = 0,
     val vesselCount: Int = 0,
     val lastUpdateMs: Long = 0L,
+    val loading: Boolean = false,
     val apiBlocked: Boolean = false,
     val apiBlockedSource: String? = null,
 )

@@ -41,6 +41,10 @@ class OpenSkyRepository(private val settings: SettingsStore) {
     private var cachedToken: String? = null
     private var tokenExpiresAtMs: Long = 0L
 
+    // Cooldown global sur l'API itinéraire (flights/aircraft) après un 429 :
+    // ne plus réessayer pendant 10 min pour ne pas marteler le serveur
+    private var flightRouteCooldownUntilMs: Long = 0L
+
     /** Header Authorization : Bearer si credentials OAuth2 configurés. */
     private fun authHeader(): String? {
         if (!settings.hasOpenSkyCredentials) return null
@@ -153,6 +157,10 @@ class OpenSkyRepository(private val settings: SettingsStore) {
     /** Route d'un vol : [origine, destination] (codes IATA 3 lettres, ex. CDG/ORY).
      *  Utilise /api/flights/aircraft (vols d'un avion sur 24 h) — plus fiable que /api/routes. */
     suspend fun fetchFlightRoute(icao24: String): Pair<String, String>? = withContext(Dispatchers.IO) {
+        // Cooldown après un 429 : retourne le marqueur LIMIT sans requête
+        if (System.currentTimeMillis() < flightRouteCooldownUntilMs) {
+            return@withContext "LIMIT" to "LIMIT"
+        }
         try {
             val now = System.currentTimeMillis() / 1000
             val begin = now - 3 * 3600 // 3 h suffisent pour le départ (24 h = trop de crédits OpenSky)
@@ -180,7 +188,10 @@ class OpenSkyRepository(private val settings: SettingsStore) {
                         }
                         null
                     }
-                    429 -> return@withContext "LIMIT" to "LIMIT" // marqueur : quota/rate limit
+                    429 -> {
+                        flightRouteCooldownUntilMs = System.currentTimeMillis() + 10 * 60_000
+                        return@withContext "LIMIT" to "LIMIT" // marqueur : quota/rate limit
+                    }
                     else -> null
                 }
             } finally {
