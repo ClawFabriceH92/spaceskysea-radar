@@ -12,7 +12,7 @@ data class UserPosition(
     val hasFix: Boolean,
 )
 
-/** Un avion vu par OpenSky. */
+/** Un avion vu par OpenSky (tous les champs disponibles). */
 @Serializable
 data class Aircraft(
     val icao24: String,
@@ -20,11 +20,15 @@ data class Aircraft(
     val originCountry: String,
     val latitude: Double?,
     val longitude: Double?,
-    val altitudeMeters: Float?,
+    val altitudeMeters: Float?,      // altitude barométrique
     val velocityMs: Float?,
     val heading: Float?,
     val onGround: Boolean,
     val verticalRateMs: Float? = null,
+    val geoAltitudeMeters: Float? = null,  // altitude géométrique (GPS)
+    val squawk: String? = null,           // code transpondeur (ex: 7000)
+    val lastContactMs: Long? = null,      // timestamp du dernier contact
+    val positionSource: Int? = null,      // 0=ADS-B, 1=ASTERIX, 2=MLAT
 )
 
 /** Un navire vu par AISstream. */

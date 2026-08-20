@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Caméra : vue du ciel en réalité augmentée (mode Jumelles) -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <!-- DownloadManager auto-update : nécessaire seulement avant Android 10 -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"

@@ -71,10 +71,6 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean("background_tracking", false)
         set(v) = prefs.edit().putBoolean("background_tracking", v).apply()
 
-    var useOpenTopoMap: Boolean
-        get() = prefs.getBoolean("opentopo", false)
-        set(v) = prefs.edit().putBoolean("opentopo", v).apply()
-
     val hasOpenSkyCredentials: Boolean
         get() = openskyUsername.isNotBlank() && openskyPassword.isNotBlank()
 

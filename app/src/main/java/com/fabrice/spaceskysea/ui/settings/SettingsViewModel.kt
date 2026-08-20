@@ -18,7 +18,6 @@ data class SettingsUiState(
     val openskyPass: String,
     val aisstreamKey: String,
     val backgroundTracking: Boolean,
-    val useOpenTopoMap: Boolean,
 )
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -39,7 +38,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         openskyPass = store.openskyPassword,
         aisstreamKey = store.aisstreamKey,
         backgroundTracking = store.backgroundTrackingEnabled,
-        useOpenTopoMap = store.useOpenTopoMap,
     )
 
     fun setAircraftRadius(km: Int) { store.aircraftRadiusKm = km; _state.value = readState() }
@@ -52,5 +50,4 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setOpenSkyPass(v: String) { store.openskyPassword = v; _state.value = readState() }
     fun setAisKey(v: String) { store.aisstreamKey = v; _state.value = readState() }
     fun setBackgroundTracking(on: Boolean) { store.backgroundTrackingEnabled = on; _state.value = readState() }
-    fun setOpenTopo(on: Boolean) { store.useOpenTopoMap = on; _state.value = readState() }
 }

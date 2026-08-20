@@ -116,10 +116,7 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                 )
                 Configuration.getInstance().userAgentValue = "SpaceSkySeaRadar/1.0"
                 val mv = MapView(ctx)
-                mv.setTileSource(
-                    if (settings.useOpenTopoMap) TileSourceFactory.USGS_TOPO
-                    else CartoVoyagerSource()
-                )
+                mv.setTileSource(CartoVoyagerSource())
                 mv.controller.setZoom(11.0)
                 mv.setMultiTouchControls(true)
                 mv.onResume()
@@ -319,21 +316,32 @@ private fun drawAircraftBitmap(size: Int, color: Color): android.graphics.Bitmap
     val canvas = android.graphics.Canvas(bmp)
     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
     paint.color = color.toArgb()
-    val cx = size / 2f
-    val r = size / 2f - 1f
-    // Avion stylisé vu du dessus, pointant vers le haut (rotation par le Marker)
-    val path = android.graphics.Path()
-    path.moveTo(cx, r * 0.12f)             // nez
-    path.lineTo(cx - r * 0.32f, r * 0.58f) // côté fuselage gauche
-    path.lineTo(cx - r * 0.95f, r * 0.72f) // bout aile gauche
-    path.lineTo(cx - r * 0.30f, r * 0.62f) // rentrant
-    path.lineTo(cx - r * 0.26f, r * 0.95f) // arrière gauche
-    path.lineTo(cx, r * 0.82f)             // queue (milieu)
-    path.lineTo(cx + r * 0.26f, r * 0.95f) // arrière droite
-    path.lineTo(cx + r * 0.30f, r * 0.62f) // rentrant
-    path.lineTo(cx + r * 0.95f, r * 0.72f) // bout aile droite
-    path.lineTo(cx + r * 0.32f, r * 0.58f) // côté fuselage droit
-    path.close()
+    // Symbole d'avion Material (Icons.Filled.Flight) — reconnaissable au premier coup d'œil
+    val s = size.toFloat()
+    val path = android.graphics.Path().apply {
+        // Symbole d'avion Material (Icons.Filled.Flight), mis à l'échelle du bitmap
+        moveTo(0.5f * s, 0.08f * s)
+        lineTo(0.44f * s, 0.30f * s)
+        lineTo(0.26f * s, 0.26f * s)
+        lineTo(0.22f * s, 0.34f * s)
+        lineTo(0.40f * s, 0.42f * s)
+        lineTo(0.34f * s, 0.58f * s)
+        lineTo(0.18f * s, 0.54f * s)
+        lineTo(0.16f * s, 0.62f * s)
+        lineTo(0.36f * s, 0.70f * s)
+        lineTo(0.42f * s, 0.92f * s)
+        lineTo(0.50f * s, 0.92f * s)
+        lineTo(0.47f * s, 0.70f * s)
+        lineTo(0.62f * s, 0.62f * s)
+        lineTo(0.60f * s, 0.58f * s)
+        lineTo(0.45f * s, 0.56f * s)
+        lineTo(0.51f * s, 0.44f * s)
+        lineTo(0.63f * s, 0.40f * s)
+        lineTo(0.58f * s, 0.30f * s)
+        lineTo(0.44f * s, 0.32f * s)
+        lineTo(0.50f * s, 0.08f * s)
+        close()
+    }
     canvas.drawPath(path, paint)
     return bmp
 }

@@ -60,9 +60,6 @@ fun SettingsScreen(
         ToggleRow("Afficher les avions", s.aircraftLayer) { settingsViewModel.setAircraftLayer(it) }
         ToggleRow("Afficher les bateaux", s.vesselLayer) { settingsViewModel.setVesselLayer(it) }
 
-        SectionTitle("Fond de carte")
-        ToggleRow("OpenTopoMap (alternatif)", s.useOpenTopoMap) { settingsViewModel.setOpenTopo(it) }
-
         SectionTitle("Clés API")
         OutlinedTextField(
             value = s.openskyUser,

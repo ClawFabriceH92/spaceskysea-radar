@@ -60,8 +60,8 @@ android {
         applicationId = "com.fabrice.spaceskysea"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.0.4"
+        versionCode = 6
+        versionName = "1.0.5"
     }
 
     signingConfigs {
@@ -119,6 +119,12 @@ dependencies {
     // Carte OpenStreetMap (sans Google Maps)
     implementation("org.osmdroid:osmdroid-android:6.1.18")
     implementation("androidx.preference:preference-ktx:1.2.1")
+
+    // Caméra (mode Ciel AR)
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
 
     // Réseau : OpenSky (REST) + AISstream (WebSocket)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

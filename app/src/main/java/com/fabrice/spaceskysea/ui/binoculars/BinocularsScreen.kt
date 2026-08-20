@@ -2,6 +2,7 @@ package com.fabrice.spaceskysea.ui.binoculars
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,12 +18,14 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,6 +42,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.fabrice.spaceskysea.data.StarCatalog
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -180,12 +190,22 @@ private fun TargetCard(t: Target) {
             Text("${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km")
         }
         Row(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
+            if (t.status.isNotBlank()) {
+                Text("${t.status} · ", style = MaterialTheme.typography.bodySmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            }
             t.altitudeMeters?.let { Text("Alt ${it.toInt()} m · ", style = MaterialTheme.typography.bodySmall) }
             t.speedKmh?.let { Text("${it.roundToInt()} km/h · ", style = MaterialTheme.typography.bodySmall) }
             if (t.country.isNotBlank()) {
                 Text("🌍 ${t.country} · ", style = MaterialTheme.typography.bodySmall)
             }
             Text(trend, style = MaterialTheme.typography.bodySmall, color = trendColor)
+            t.approaching?.let { app ->
+                if (app) {
+                    Text(" · ⟶ se rapproche", style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32))
+                } else {
+                    Text(" · ⟵ s'éloigne", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE65100))
+                }
+            }
         }
     }
 }
@@ -278,8 +298,11 @@ private fun ControllerRow(t: Target) {
             Text("Cap ${t.bearing.roundToInt()}° · ", style = MaterialTheme.typography.bodySmall)
             t.speedKmh?.let { Text("${it.roundToInt()} km/h · ", style = MaterialTheme.typography.bodySmall) }
             if (t.country.isNotBlank()) {
-                Text("🌍 ${t.country}", style = MaterialTheme.typography.bodySmall)
+                Text("🌍 ${t.country} · ", style = MaterialTheme.typography.bodySmall)
             }
+            t.geoAltitudeMeters?.let { Text("GPS ${it.toInt()} m · ", style = MaterialTheme.typography.bodySmall) }
+            t.squawk?.let { Text("Squawk $it · ", style = MaterialTheme.typography.bodySmall) }
+            Text("${t.icao24.uppercase()}", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.weight(1f))
             (t.verticalRateMs ?: 0f).let { vr ->
                 if (vr != 0f) {
@@ -411,69 +434,88 @@ private fun VerticalSkyView(s: BinocularsState) {
 }
 
 /**
- * Mode Ciel : carte du ciel gyroscopique. Levez le téléphone — les étoiles
- * visibles (calculées depuis votre position + date/heure) et les avions
- * s'affichent dans la direction visée.
+ * Mode Ciel : carte du ciel en réalité augmentée. Levez le téléphone — la
+ * CAMÉRA s'affiche en fond, avec les étoiles réelles (position astronomique
+ * calculée) et les avions en surimpression (gyroscope : cap + inclinaison).
  */
 @Composable
 private fun SkyView(s: BinocularsState) {
     val textMeasurer = rememberTextMeasurer()
-    val starLabel = TextStyle(fontSize = 9.sp, color = Color(0xFFBBDEFB))
+    val starLabel = TextStyle(fontSize = 9.sp, color = Color(0xFFFFF59D))
     val planeLabel = TextStyle(fontSize = 10.sp, color = Color(0xFFFFCDD2))
     val fovAz = 75f   // demi-champ en azimut
     val fovAlt = 55f  // demi-champ en altitude
+    var showStars by remember { mutableStateOf(true) }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Canvas(
+        Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Étoiles", style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.width(8.dp))
+            Switch(
+                checked = showStars,
+                onCheckedChange = { showStars = it },
+            )
+        }
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(400.dp)
         ) {
-            val w = size.width
-            val h = size.height
+            CameraPreview(Modifier.fillMaxSize())
+            Canvas(Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
 
-            fun xOf(azDeg: Float) = (azDeg - (s.heading - fovAz)) / (2 * fovAz) * w
-            fun yOf(altDeg: Float) = (1f - (altDeg - (s.pitchDeg - fovAlt)) / (2 * fovAlt)) * h
+                fun xOf(azDeg: Float) = (azDeg - (s.heading - fovAz)) / (2 * fovAz) * w
+                fun yOf(altDeg: Float) = (1f - (altDeg - (s.pitchDeg - fovAlt)) / (2 * fovAlt)) * h
 
-            // Nuit
-            drawRect(
-                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                    listOf(Color(0xFF010A18), Color(0xFF0B1D3A))
-                ),
-                size = size,
-            )
+                // Voile sombre semi-transparent pour la lisibilité (la caméra reste visible)
+                drawRect(
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        listOf(Color(0x33010A18), Color(0x22010A18))
+                    ),
+                    size = size,
+                )
 
-            // Grille (horizon, zénith)
-            val horizonY = yOf(0f)
-            drawLine(Color(0x2200BFFF), Offset(0f, horizonY), Offset(w, horizonY), strokeWidth = 2f)
-            drawText(textMeasurer.measure("Horizon", TextStyle(fontSize = 8.sp, color = Color(0x6600BFFF))), topLeft = Offset(4f, horizonY + 2f))
-            drawText(textMeasurer.measure("Zénith", TextStyle(fontSize = 8.sp, color = Color(0x6600BFFF))), topLeft = Offset(4f, yOf(80f)))
+                // Horizon
+                val horizonY = yOf(0f)
+                drawLine(Color(0x6600BFFF), Offset(0f, horizonY), Offset(w, horizonY), strokeWidth = 2f)
+                drawText(textMeasurer.measure("Horizon", TextStyle(fontSize = 8.sp, color = Color(0x9900BFFF))), topLeft = Offset(4f, horizonY + 2f))
 
-            // Étoiles (position astronomique réelle)
-            val now = java.util.Date()
-            val stars = StarCatalog.visibleStars(now, s.position.latitude, s.position.longitude)
-            stars.forEach { (star, pos) ->
-                val dx = angularDiff(pos.azimuthDeg.toFloat(), s.heading)
-                val dy = pos.altitudeDeg.toFloat() - s.pitchDeg
-                if (dx <= fovAz && dy > -fovAlt && dy < fovAlt + 20f) {
-                    val x = xOf(if (pos.azimuthDeg < 180) s.heading + dx else s.heading - dx)
-                    val y = yOf(pos.altitudeDeg.toFloat())
-                    val r = (4.5f - star.magnitude.toFloat()).coerceIn(1.5f, 4.5f)
-                    drawCircle(Color(0xFFE3F2FD), radius = r, center = Offset(x, y))
-                    drawText(textMeasurer.measure(star.name, starLabel), topLeft = Offset(x + 5f, y - 6f))
+                // Étoiles (option) — position astronomique réelle
+                if (showStars) {
+                    val now = java.util.Date()
+                    val stars = StarCatalog.visibleStars(now, s.position.latitude, s.position.longitude)
+                    stars.forEach { (star, pos) ->
+                        val dx = angularDiff(pos.azimuthDeg.toFloat(), s.heading)
+                        val dy = pos.altitudeDeg.toFloat() - s.pitchDeg
+                        if (dx <= fovAz && dy > -fovAlt && dy < fovAlt + 20f) {
+                            val x = xOf(if (pos.azimuthDeg < 180) s.heading + dx else s.heading - dx)
+                            val y = yOf(pos.altitudeDeg.toFloat())
+                            val r = (4.5f - star.magnitude.toFloat()).coerceIn(1.5f, 4.5f)
+                            drawCircle(Color(0xFFFFEB3B), radius = r, center = Offset(x, y))
+                            drawText(textMeasurer.measure(star.name, starLabel), topLeft = Offset(x + 5f, y - 6f))
+                        }
+                    }
                 }
-            }
 
-            // Avions dans le ciel (azimut + élévation)
-            s.targets.forEach { t ->
-                val dx = angularDiff(t.bearing, s.heading)
-                val dy = t.elevationDeg - s.pitchDeg
-                if (dx <= fovAz && dy > -fovAlt && dy < fovAlt + 20f) {
-                    val x = xOf(if (t.bearing < 180) s.heading + dx else s.heading - dx)
-                    val y = yOf(t.elevationDeg)
-                    drawCircle(Color(0xFFD32F2F), radius = 5f, center = Offset(x, y))
-                    drawCircle(Color.White, radius = 1.5f, center = Offset(x, y))
-                    drawText(textMeasurer.measure(t.label.take(7), planeLabel), topLeft = Offset(x + 6f, y - 6f))
+                // Avions dans le ciel (azimut + élévation)
+                s.targets.forEach { t ->
+                    val dx = angularDiff(t.bearing, s.heading)
+                    val dy = t.elevationDeg - s.pitchDeg
+                    if (dx <= fovAz && dy > -fovAlt && dy < fovAlt + 20f) {
+                        val x = xOf(if (t.bearing < 180) s.heading + dx else s.heading - dx)
+                        val y = yOf(t.elevationDeg)
+                        drawCircle(Color(0xFFD32F2F), radius = 6f, center = Offset(x, y))
+                        drawCircle(Color.White, radius = 2f, center = Offset(x, y))
+                        drawText(textMeasurer.measure(t.label.take(7), planeLabel), topLeft = Offset(x + 7f, y - 7f))
+                        val vr = t.verticalRateMs ?: 0f
+                        if (vr > 1f) {
+                            drawText(textMeasurer.measure("▲", TextStyle(fontSize = 12.sp, color = Color(0xFF69F0AE))), topLeft = Offset(x + 6f, y - 18f))
+                        } else if (vr < -1f) {
+                            drawText(textMeasurer.measure("▼", TextStyle(fontSize = 12.sp, color = Color(0xFFEF9A9A))), topLeft = Offset(x + 6f, y + 6f))
+                        }
+                    }
                 }
             }
         }
@@ -484,11 +526,40 @@ private fun SkyView(s: BinocularsState) {
             color = Color(0xFF1B468A),
         )
         Text(
-            "Étoiles réelles (position calculée) + ✈️ avions détectés",
+            "Caméra + étoiles réelles + ✈️ avions (gyroscope)",
             style = MaterialTheme.typography.bodySmall,
             color = Color(0xFF546E7A),
         )
     }
+}
+
+/** Aperçu caméra CameraX (fond du mode Ciel). */
+@Composable
+private fun CameraPreview(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            val previewView = PreviewView(ctx)
+            val future = ProcessCameraProvider.getInstance(ctx)
+            future.addListener({
+                try {
+                    val provider = future.get()
+                    val preview = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+                    provider.unbindAll()
+                    provider.bindToLifecycle(
+                        lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview
+                    )
+                } catch (_: Exception) {
+                    // Caméra indisponible : le mode fonctionne sans fond caméra
+                }
+            }, ContextCompat.getMainExecutor(ctx))
+            previewView
+        },
+    )
 }
 
 @Composable

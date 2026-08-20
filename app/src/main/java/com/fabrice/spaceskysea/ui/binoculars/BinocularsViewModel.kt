@@ -37,6 +37,11 @@ data class Target(
     val verticalRateMs: Float? = null,  // montée/descente (m/s)
     val country: String = "",           // pays d'origine
     val elevationDeg: Float = 0f,       // angle au-dessus de l'horizon (vue du ciel)
+    val approaching: Boolean? = null,   // true=se rapproche, false=s'éloigne, null=inconnu
+    val status: String = "",            // Stationnement/Décollage/Montée/Croisière/Descente/Atterrissage/Au sol
+    val geoAltitudeMeters: Float? = null,
+    val squawk: String? = null,
+    val icao24: String = "",
 )
 
 data class BinocularsState(
@@ -68,6 +73,9 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _state = MutableStateFlow(BinocularsState())
     val state: StateFlow<BinocularsState> = _state.asStateFlow()
+
+    // Historique des distances par avion (pour rapproche/éloigne)
+    private val lastDistance = mutableMapOf<String, Float>()
 
     private var pollingJob: Job? = null
 
@@ -123,6 +131,11 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
                             verticalRateMs = ac.verticalRateMs,
                             country = ac.originCountry,
                             elevationDeg = elevationOf(ac.altitudeMeters, dist),
+                            approaching = trendOf(ac.callsign.ifEmpty { ac.icao24 }, dist),
+                            status = statusOf(ac),
+                            geoAltitudeMeters = ac.geoAltitudeMeters,
+                            squawk = ac.squawk,
+                            icao24 = ac.icao24,
                         )
                     }
                     .sortedBy { it.distanceKm }
@@ -162,6 +175,29 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
     fun elevationOf(altitudeMeters: Float?, distanceKm: Float): Float {
         if (altitudeMeters == null || distanceKm <= 0f) return 0f
         return Math.toDegrees(Math.atan2(altitudeMeters.toDouble(), distanceKm * 1000.0)).toFloat()
+    }
+
+    /** Compare la distance à la précédente → true=rapproche, false=éloigne, null=inconnu. */
+    fun trendOf(label: String, dist: Float): Boolean? {
+        val prev = lastDistance[label]
+        lastDistance[label] = dist
+        return prev?.let { dist < it - 0.2f }
+    }
+
+    /** Statut dérivé : Stationnement / Décollage / Montée / Croisière / Descente / Atterrissage / Au sol. */
+    fun statusOf(ac: com.fabrice.spaceskysea.data.Aircraft): String {
+        val alt = ac.altitudeMeters ?: 0f
+        val vr = ac.verticalRateMs ?: 0f
+        val speed = ac.velocityMs ?: 0f
+        return when {
+            ac.onGround && speed < 3f -> "Stationnement"
+            ac.onGround -> "Au sol (roulage)"
+            alt < 600f && vr > 2f -> "Décollage"
+            alt < 600f && vr < -2f -> "Atterrissage"
+            vr > 2f -> "Montée"
+            vr < -2f -> "Descente"
+            else -> "Croisière"
+        }
     }
 
     override fun onCleared() {

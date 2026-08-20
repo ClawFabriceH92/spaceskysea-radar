@@ -11,6 +11,7 @@ import kotlinx.serialization.json.floatOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 
 /** Parsing pur de la réponse OpenSky (testable sans Android). */
 object OpenSkyParser {
@@ -43,6 +44,15 @@ object OpenSkyParser {
                 heading = f(10),
                 onGround = b(8),
                 verticalRateMs = f(11),
+                geoAltitudeMeters = f(13),
+                squawk = s(14),
+                lastContactMs = arr.getOrNull(4)?.takeIf { it !is JsonNull }
+                    ?.jsonPrimitive?.longOrNull,
+                positionSource = arr.getOrNull(16)?.takeIf { it !is JsonNull }
+                    ?.jsonPrimitive?.let {
+                        if (it.contentOrNull != null) it.contentOrNull!!.toIntOrNull()
+                        else it.toString().toIntOrNull()
+                    },
             )
         }
         return out
