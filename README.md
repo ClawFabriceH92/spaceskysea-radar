@@ -55,4 +55,4 @@ Les clés se saisissent dans l'onglet **Paramètres** et restent sur l'appareil.
 - Navires : [AISstream.io](https://aisstream.io)
 - Carte : © OpenStreetMap contributors © [CARTO](https://carto.com)
 
-Projet personnel de Fabrice — usage privé/éducatif.
+Projet personnel — usage privé/éducatif.
