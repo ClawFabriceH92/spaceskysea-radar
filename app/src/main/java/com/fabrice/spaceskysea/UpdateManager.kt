@@ -2,11 +2,11 @@ package com.fabrice.spaceskysea
 
 import android.app.DownloadManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Environment
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -16,21 +16,25 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Auto-update via GitHub Releases : au lancement, lit version.json de la
- * release "latest" ; si une version plus récente existe, télécharge l'APK
- * (DownloadManager) et notifie l'utilisateur.
+ * release "latest" ; si une version STRICTEMENT plus récente existe (et n'a
+ * pas déjà été téléchargée), télécharge l'APK (DownloadManager) et notifie.
  */
 class UpdateManager(private val context: Context) {
 
     private val repo = "ClawFabriceH92/spaceskysea-radar"
     private val versionUrl = "https://github.com/$repo/releases/latest/download/version.json"
+    private val prefs = context.getSharedPreferences("spaceskysea_update", Context.MODE_PRIVATE)
 
     fun checkForUpdates() {
-        CoroutineScope(Dispatchers.IO).launch {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 val current = currentVersion()
                 val remote = fetchRemoteVersion() ?: return@launch
-                if (remote.version != current && remote.version.isNotBlank()) {
-                    downloadApk(remote.apkUrl)
+                val alreadyDownloaded = prefs.getString("last_downloaded", null)
+                if (VersionUtils.isNewer(remote.version, current) &&
+                    VersionUtils.normalize(remote.version) != alreadyDownloaded
+                ) {
+                    downloadApk(remote.apkUrl, remote.version)
                 }
             } catch (_: Exception) {
                 // Silencieux : l'auto-update ne doit jamais bloquer l'app
@@ -40,7 +44,7 @@ class UpdateManager(private val context: Context) {
 
     private fun currentVersion(): String = try {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
-    } catch (e: PackageManager.NameNotFoundException) {
+    } catch (_: Exception) {
         ""
     }
 
@@ -61,18 +65,20 @@ class UpdateManager(private val context: Context) {
         }
     }
 
-    private fun downloadApk(apkUrl: String) {
+    private fun downloadApk(apkUrl: String, version: String) {
         if (apkUrl.isBlank()) return
+        val normalized = VersionUtils.normalize(version)
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val request = DownloadManager.Request(Uri.parse(apkUrl))
-            .setTitle("SpaceSkySea Radar — mise à jour disponible")
+            .setTitle("SpaceSkySea Radar — mise à jour $normalized")
             .setDescription("Téléchargement de la nouvelle version…")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(
                 Environment.DIRECTORY_DOWNLOADS,
-                "spaceskysea-radar-update.apk"
+                "spaceskysea-radar-$normalized.apk"
             )
         dm.enqueue(request)
+        prefs.edit().putString("last_downloaded", normalized).apply()
     }
 
     private data class RemoteVersion(val version: String, val apkUrl: String)

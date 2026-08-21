@@ -2,9 +2,11 @@ package com.fabrice.spaceskysea
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,17 +23,19 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.fabrice.spaceskysea.ui.binoculars.BinocularsScreen
 import com.fabrice.spaceskysea.ui.flight.FlightScreen
 import com.fabrice.spaceskysea.ui.map.MapScreen
 import com.fabrice.spaceskysea.ui.settings.SettingsScreen
 import com.fabrice.spaceskysea.ui.settings.SettingsViewModel
+import com.fabrice.spaceskysea.ui.theme.SpaceSkySeaTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -42,11 +46,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         requestLocationPermissionsIfNeeded()
         UpdateManager(this).checkForUpdates()
         setContent {
-            SpaceSkySeaApp(settingsViewModel) {
-                requestBackgroundLocationIfNeeded()
+            SpaceSkySeaTheme {
+                SpaceSkySeaApp(settingsViewModel) {
+                    requestBackgroundPermissionsIfNeeded()
+                }
             }
         }
     }
@@ -64,11 +71,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun requestBackgroundLocationIfNeeded() {
+    /** Suivi en arrière-plan : localisation en arrière-plan + notifications (API 33+). */
+    fun requestBackgroundPermissionsIfNeeded() {
+        val needed = mutableListOf<String>()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+            needed.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (needed.isNotEmpty()) {
+            locationPermissionLauncher.launch(needed.toTypedArray())
         }
     }
 }
@@ -78,10 +96,10 @@ data class TabItem(val label: String, val icon: ImageVector)
 @Composable
 fun SpaceSkySeaApp(
     settingsViewModel: SettingsViewModel,
-    onRequestBackgroundLocation: () -> Unit,
+    onRequestBackgroundPermissions: () -> Unit,
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var selectedTab by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val tabs = listOf(
         TabItem("Carte", Icons.Filled.Map),
         TabItem("Jumelles", Icons.Filled.Visibility),
@@ -112,7 +130,7 @@ fun SpaceSkySeaApp(
                 Modifier.padding(padding),
                 onBackgroundTrackingChanged = { enabled ->
                     if (enabled) {
-                        onRequestBackgroundLocation()
+                        onRequestBackgroundPermissions()
                         com.fabrice.spaceskysea.service.TrackingService.start(context)
                     } else {
                         com.fabrice.spaceskysea.service.TrackingService.stop(context)

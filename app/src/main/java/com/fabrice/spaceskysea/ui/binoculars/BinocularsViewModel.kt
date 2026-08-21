@@ -15,11 +15,8 @@ import com.fabrice.spaceskysea.data.UserPosition
 import com.fabrice.spaceskysea.data.location.LocationRepository
 import com.fabrice.spaceskysea.data.opensky.OpenSkyRepository
 import com.fabrice.spaceskysea.data.opensky.OpenSkyResult
+import kotlin.math.asin
 import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.roundToInt
-import kotlin.math.sin
-import kotlin.math.sqrt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +31,7 @@ data class Target(
     val distanceKm: Float,
     val altitudeMeters: Float?,
     val speedKmh: Float?,
+    val headingDeg: Float? = null,      // cap réel de l'avion
     val verticalRateMs: Float? = null,  // montée/descente (m/s)
     val country: String = "",           // pays d'origine
     val elevationDeg: Float = 0f,       // angle au-dessus de l'horizon (vue du ciel)
@@ -47,10 +45,11 @@ data class Target(
 )
 
 data class BinocularsState(
-    val heading: Float = 0f,          // cap du téléphone (boussole)
-    val pitchDeg: Float = 0f,         // inclinaison verticale du téléphone (0=horizontal, 90=levé)
+    val heading: Float = 0f,          // cap boussole (téléphone à plat, axe haut de l'écran)
+    val cameraAzimuth: Float = 0f,    // azimut visé par la caméra arrière (mode Ciel)
+    val cameraElevation: Float = -90f, // élévation caméra : 0=horizon, 90=zénith, -90=sol
     val position: UserPosition = UserPosition(48.85, 2.35, 0f, 0f, 0f, false),
-    val targets: List<Target> = emptyList(),      // cibles dans le cône de visée
+    val targets: List<Target> = emptyList(),      // cibles dans le cône de visée (±45°)
     val allAircraft: List<Target> = emptyList(),  // TOUT le trafic (mode contrôleur)
     val totalAircraft: Int = 0,
     val apiBlocked: Boolean = false,
@@ -58,9 +57,12 @@ data class BinocularsState(
 )
 
 /**
- * Mode Jumelles : boussole + avions/bateaux dans le cône de visée (±30°).
- * On filtre les avions OpenSky par relèvement ; les bateaux AIS ne sont pas
- * encore intégrés ici (v1 : avions).
+ * Mode Jumelles : boussole + avions dans le cône de visée (±45°).
+ * L'orientation est dérivée de la matrice de rotation complète :
+ * - [BinocularsState.heading] : azimut de l'axe haut du téléphone (modes à plat)
+ * - [BinocularsState.cameraAzimuth]/[BinocularsState.cameraElevation] :
+ *   direction de la caméra arrière (mode Ciel, téléphone levé) — stable même
+ *   téléphone à la verticale, contrairement à getOrientation() seul.
  */
 class BinocularsViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -71,7 +73,6 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
     private val sensorManager =
         application.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-    private var lastHeading = 0f
 
     private val _state = MutableStateFlow(BinocularsState())
     val state: StateFlow<BinocularsState> = _state.asStateFlow()
@@ -80,27 +81,55 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
     private val lastDistance = mutableMapOf<String, Float>()
 
     // Cache des routes (départ/arrivée) par icao24 — succès uniquement
-    private val routesCache = mutableMapOf<String, Pair<String, String>?>()
+    private val routesCache = mutableMapOf<String, Pair<String, String>>()
     // Dernier essai par icao24 (retente après 5 min si échec)
     private val routesAttemptedAt = mutableMapOf<String, Long>()
 
     private var pollingJob: Job? = null
 
+    // Lissage : EMA angulaire (gère le passage 359°→0°)
+    private var smoothHeading: Float? = null
+    private var smoothCamAz: Float? = null
+    private var smoothCamElev: Float? = null
+
     private val sensorListener = object : SensorEventListener {
+        private val rotation = FloatArray(9)
+
         override fun onSensorChanged(event: SensorEvent) {
-            if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
-                val rotation = FloatArray(9)
-                SensorManager.getRotationMatrixFromVector(rotation, event.values)
-                val orientation = FloatArray(3)
-                SensorManager.getOrientation(rotation, orientation)
-                lastHeading = Math.toDegrees(orientation[0].toDouble()).toFloat()
-                    .let { if (it < 0) it + 360f else it }
-                val pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
-                _state.value = _state.value.copy(
-                    heading = lastHeading,
-                    pitchDeg = pitch,
-                )
-            }
+            if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+            SensorManager.getRotationMatrixFromVector(rotation, event.values)
+            // v_monde = R · v_appareil ; monde = (Est, Nord, Haut).
+            // Axe haut de l'écran (+Y appareil) → cap boussole
+            val flatAz = normalize(
+                Math.toDegrees(atan2(rotation[1].toDouble(), rotation[4].toDouble())).toFloat()
+            )
+            // Caméra arrière (−Z appareil) → azimut + élévation de visée
+            val camE = -rotation[2]
+            val camN = -rotation[5]
+            val camUp = (-rotation[8]).coerceIn(-1f, 1f)
+            val camAz = normalize(
+                Math.toDegrees(atan2(camE.toDouble(), camN.toDouble())).toFloat()
+            )
+            val camElev = Math.toDegrees(asin(camUp.toDouble())).toFloat()
+
+            smoothHeading = smoothAngle(smoothHeading, flatAz)
+            smoothCamAz = smoothAngle(smoothCamAz, camAz)
+            smoothCamElev = ((smoothCamElev ?: camElev) * (1 - SMOOTH_K)) + camElev * SMOOTH_K
+
+            val s = _state.value
+            val newHeading = smoothHeading!!
+            // Seuil de 0,5° : évite de recomposer l'UI à chaque micro-vibration
+            if (GeoUtils.angularDiff(newHeading, s.heading) < 0.5f &&
+                GeoUtils.angularDiff(smoothCamAz!!, s.cameraAzimuth) < 0.5f &&
+                kotlin.math.abs(smoothCamElev!! - s.cameraElevation) < 0.5f
+            ) return
+
+            _state.value = s.copy(
+                heading = newHeading,
+                cameraAzimuth = smoothCamAz!!,
+                cameraElevation = smoothCamElev!!,
+                targets = coneFilter(s.allAircraft, newHeading),
+            )
         }
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -124,62 +153,39 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
         )) {
             is OpenSkyResult.Success -> {
                 val all = result.aircraft.filter { it.latitude != null && it.longitude != null }
+                    .distinctBy { it.icao24 } // clé des listes UI : jamais de doublon
                     .map { ac ->
-                        val bearing = bearingTo(pos.latitude, pos.longitude, ac.latitude!!, ac.longitude!!)
+                        val bearing = GeoUtils.bearingTo(
+                            pos.latitude, pos.longitude, ac.latitude!!, ac.longitude!!
+                        )
                         val dist = GeoUtils.distanceKm(
                             pos.latitude, pos.longitude, ac.latitude!!, ac.longitude!!
                         ).toFloat()
+                        val route = routesCache[ac.icao24]
                         Target(
                             label = ac.callsign.ifEmpty { ac.icao24 },
                             bearing = bearing,
                             distanceKm = dist,
                             altitudeMeters = ac.altitudeMeters,
                             speedKmh = ac.velocityMs?.let { it * 3.6f },
+                            headingDeg = ac.heading,
                             verticalRateMs = ac.verticalRateMs,
                             country = ac.originCountry,
                             elevationDeg = elevationOf(ac.altitudeMeters, dist),
-                            approaching = trendOf(ac.callsign.ifEmpty { ac.icao24 }, dist),
+                            approaching = trendOf(ac.icao24, dist),
                             status = statusOf(ac),
                             geoAltitudeMeters = ac.geoAltitudeMeters,
                             squawk = ac.squawk,
                             icao24 = ac.icao24,
+                            originAirport = route?.first,
+                            destinationAirport = route?.second,
                         )
                     }
                     .sortedBy { it.distanceKm }
-                val inCone = all.filter { angularDiff(it.bearing, _state.value.heading) <= 45f }
-                _state.value = _state.value.copy(
-                    targets = inCone,
-                    allAircraft = all,
-                    totalAircraft = result.aircraft.size,
-                    apiBlocked = false,
-                )
-                // Départ/arrivée : max 3 avions par cycle, 1,5 s entre chaque (rate limit OpenSky).
-                // Cache les succès ; retente après 5 min si échec.
-                val nowMs = System.currentTimeMillis()
-                val missing = all.take(3).filter { t ->
-                    !routesCache.containsKey(t.icao24) &&
-                        (routesAttemptedAt[t.icao24]?.let { nowMs - it > 300_000 } ?: true)
-                }
-                for (t in missing) {
-                    routesAttemptedAt[t.icao24] = nowMs
-                    val route = opensky.fetchFlightRoute(t.icao24)
-                    if (route != null && route.first != "LIMIT") routesCache[t.icao24] = route
-                    delay(1500) // respecte le rate limit OpenSky (1 req/s max)
-                }
-                if (missing.isNotEmpty()) {
-                    val updated = all.map { t ->
-                        if (routesCache.containsKey(t.icao24)) {
-                            t.copy(
-                                originAirport = routesCache[t.icao24]?.first,
-                                destinationAirport = routesCache[t.icao24]?.second,
-                            )
-                        } else t
-                    }
-                    _state.value = _state.value.copy(
-                        targets = updated.filter { angularDiff(it.bearing, _state.value.heading) <= 45f },
-                        allAircraft = updated,
-                    )
-                }
+                // Purge l'historique des distances des avions disparus
+                lastDistance.keys.retainAll(all.map { it.icao24 }.toSet())
+                publishAircraft(all, totalCount = result.aircraft.size)
+                fetchMissingRoutes(all)
             }
             OpenSkyResult.QuotaExceeded -> {
                 _state.value = _state.value.copy(apiBlocked = true)
@@ -189,37 +195,57 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    /** Relèvement (0=N, 90=E) depuis le point 1 vers le point 2. */
-    fun bearingTo(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
-        val dLon = Math.toRadians(lon2 - lon1)
-        val y = sin(dLon) * cos(Math.toRadians(lat2))
-        val x = cos(Math.toRadians(lat1)) * sin(Math.toRadians(lat2)) -
-                sin(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * cos(dLon)
-        val deg = Math.toDegrees(atan2(y, x).toDouble()).toFloat()
-        return if (deg < 0) deg + 360f else deg
+    /** Départ/arrivée : max 3 avions (les plus proches) par cycle, espacés de 1,5 s. */
+    private suspend fun fetchMissingRoutes(all: List<Target>) {
+        val nowMs = System.currentTimeMillis()
+        val missing = all.take(3).filter { t ->
+            !routesCache.containsKey(t.icao24) &&
+                (routesAttemptedAt[t.icao24]?.let { nowMs - it > 300_000 } ?: true)
+        }
+        if (missing.isEmpty()) return
+        for (t in missing) {
+            routesAttemptedAt[t.icao24] = nowMs
+            val route = opensky.fetchFlightRoute(t.icao24)
+            if (route != null && route.first != "LIMIT") routesCache[t.icao24] = route
+            delay(1500) // respecte le rate limit OpenSky (1 req/s max)
+        }
+        val updated = _state.value.allAircraft.map { t ->
+            routesCache[t.icao24]?.let { r ->
+                t.copy(originAirport = r.first, destinationAirport = r.second)
+            } ?: t
+        }
+        publishAircraft(updated, totalCount = _state.value.totalAircraft)
     }
 
-    /** Différence angulaire minimale entre deux caps [0..180]. */
-    fun angularDiff(a: Float, b: Float): Float {
-        val d = (a - b) % 360
-        return if (d > 180) 360 - d else if (d < -180) d + 360 else d
+    private fun publishAircraft(all: List<Target>, totalCount: Int) {
+        val heading = _state.value.heading
+        _state.value = _state.value.copy(
+            targets = coneFilter(all, heading),
+            allAircraft = all,
+            totalAircraft = totalCount,
+            apiBlocked = false,
+            maxDistanceKm = settings.aircraftRadiusKm,
+        )
     }
+
+    private fun coneFilter(all: List<Target>, heading: Float): List<Target> =
+        all.filter { GeoUtils.angularDiff(it.bearing, heading) <= CONE_HALF_ANGLE }
 
     /** Élévation de l'avion au-dessus de l'horizon (degrés) : atan(altitude / distance). */
     fun elevationOf(altitudeMeters: Float?, distanceKm: Float): Float {
         if (altitudeMeters == null || distanceKm <= 0f) return 0f
-        return Math.toDegrees(Math.atan2(altitudeMeters.toDouble(), distanceKm * 1000.0)).toFloat()
+        return Math.toDegrees(atan2(altitudeMeters.toDouble(), distanceKm * 1000.0)).toFloat()
     }
 
     /** Compare la distance à la précédente → true=rapproche, false=éloigne, null=inconnu. */
-    fun trendOf(label: String, dist: Float): Boolean? {
-        val prev = lastDistance[label]
-        lastDistance[label] = dist
+    fun trendOf(key: String, dist: Float): Boolean? {
+        val prev = lastDistance[key]
+        lastDistance[key] = dist
         return prev?.let { dist < it - 0.2f }
     }
 
     /** Statut dérivé : Stationnement / Décollage / Montée / Croisière / Descente / Atterrissage / Au sol. */
-    fun statusOf(ac: com.fabrice.spaceskysea.data.Aircraft): String {
+    fun statusOf(ac: Aircraft): String {
         val alt = ac.altitudeMeters ?: 0f
         val vr = ac.verticalRateMs ?: 0f
         val speed = ac.velocityMs ?: 0f
@@ -232,6 +258,18 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
             vr < -2f -> "Descente"
             else -> "Croisière"
         }
+    }
+
+    private fun normalize(deg: Float): Float {
+        var d = deg % 360f
+        if (d < 0) d += 360f
+        return d
+    }
+
+    /** EMA angulaire : lisse en passant par le plus court chemin (359°→0°). */
+    private fun smoothAngle(prev: Float?, new: Float): Float {
+        if (prev == null) return new
+        return normalize(prev + SMOOTH_K * GeoUtils.signedAngleDelta(new, prev))
     }
 
     override fun onCleared() {
@@ -248,5 +286,10 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
 
     fun onPause() {
         sensorManager.unregisterListener(sensorListener)
+    }
+
+    companion object {
+        const val CONE_HALF_ANGLE = 45f
+        private const val SMOOTH_K = 0.25f
     }
 }

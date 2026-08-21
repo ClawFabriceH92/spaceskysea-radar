@@ -3,9 +3,12 @@ package com.fabrice.spaceskysea
 import com.fabrice.spaceskysea.data.AirlineTable
 import com.fabrice.spaceskysea.data.GeoUtils
 import com.fabrice.spaceskysea.data.SpeedSmoother
+import com.fabrice.spaceskysea.data.StarCatalog
 import com.fabrice.spaceskysea.data.ais.AisParser
+import com.fabrice.spaceskysea.data.ais.AisUpdate
 import com.fabrice.spaceskysea.data.opensky.OpenSkyParser
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -35,18 +38,57 @@ class BoundingBoxTest {
     }
 }
 
+class GeoUtilsAngleTest {
+
+    @Test
+    fun `bearingTo vers l'est environ 90 degres`() {
+        val b = GeoUtils.bearingTo(48.0, 2.0, 48.0, 3.0)
+        assertTrue("attendu ~90, obtenu $b", b in 88f..92f)
+    }
+
+    @Test
+    fun `bearingTo vers le nord environ 0 degres`() {
+        val b = GeoUtils.bearingTo(48.0, 2.0, 49.0, 2.0)
+        assertTrue("attendu ~0, obtenu $b", b < 1f || b > 359f)
+    }
+
+    @Test
+    fun `angularDiff est toujours positif et minimal`() {
+        assertEquals(20f, GeoUtils.angularDiff(10f, 350f), 0.01f)
+        assertEquals(20f, GeoUtils.angularDiff(350f, 10f), 0.01f)
+        assertEquals(180f, GeoUtils.angularDiff(0f, 180f), 0.01f)
+        assertEquals(20f, GeoUtils.angularDiff(170f, 190f), 0.01f)
+        assertEquals(40f, GeoUtils.angularDiff(10f, 50f), 0.01f) // régression : renvoyait -40
+    }
+
+    @Test
+    fun `signedAngleDelta donne le sens du plus court chemin`() {
+        assertEquals(20f, GeoUtils.signedAngleDelta(10f, 350f), 0.01f)   // 350°→10° = +20 (droite)
+        assertEquals(-20f, GeoUtils.signedAngleDelta(350f, 10f), 0.01f)  // 10°→350° = −20 (gauche)
+        assertEquals(-180f, GeoUtils.signedAngleDelta(180f, 0f), 0.01f)
+    }
+}
+
 class SpeedSmootherTest {
 
     @Test
     fun `EMA alpha 03 lisse les valeurs`() {
-        SpeedSmoother.reset()
-        SpeedSmoother.update(10f)
-        val second = SpeedSmoother.update(10f)
+        val smoother = SpeedSmoother()
+        smoother.update(10f)
+        val second = smoother.update(10f)
         assertEquals(10f, second, 0.01f)
-        SpeedSmoother.reset()
-        SpeedSmoother.update(0f)
-        val smooth = SpeedSmoother.update(20f) // 0.3*20 + 0.7*0 = 6
+        smoother.reset()
+        smoother.update(0f)
+        val smooth = smoother.update(20f) // 0.3*20 + 0.7*0 = 6
         assertEquals(6f, smooth, 0.01f)
+    }
+
+    @Test
+    fun `deux instances sont independantes`() {
+        val a = SpeedSmoother()
+        val b = SpeedSmoother()
+        a.update(100f)
+        assertEquals(5f, b.update(5f), 0.01f)
     }
 }
 
@@ -72,6 +114,12 @@ class AirlineTableTest {
     fun `code court accepte`() {
         assertEquals("KLM456", AirlineTable.resolveCallsign("KLM 456"))
     }
+
+    @Test
+    fun `compagnies francaises ajoutees`() {
+        assertEquals("CRL731", AirlineTable.resolveCallsign("Corsair SS731"))
+        assertEquals("FBU720", AirlineTable.resolveCallsign("French Bee BF720"))
+    }
 }
 
 class OpenSkyParsingTest {
@@ -93,6 +141,7 @@ class OpenSkyParsingTest {
         assertEquals(10000f, first.altitudeMeters!!, 0.1f)
         assertEquals(250f, first.velocityMs!!, 0.1f)
         assertEquals(90f, first.heading!!, 0.1f)
+        assertFalse(first.onGround)
         val second = aircraft[1]
         assertEquals("", second.callsign)
         assertNull(second.latitude)
@@ -108,21 +157,90 @@ class OpenSkyParsingTest {
 class AisParsingTest {
 
     @Test
-    fun `parse PositionReport`() {
-        val body = """{"MetaData":{"MMSI":227006760,"ShipName":"LE PECHEUR","time_utc":"2026-08-20 10:00:00"},"MessageType":"PositionReport","Message":{"ShipType":"Fishing","CourseOverGround":120.5,"SpeedOverGround":5.2,"Latitude":48.3,"Longitude":-4.5,"Destination":"BREST","ETA":"2026-08-21 08:00"}}"""
-        val v = AisParser.parsePositionReport(body)
-        assertNotNull(v)
-        assertEquals(227006760L, v!!.mmsi)
-        assertEquals("LE PECHEUR", v.name)
-        assertEquals(48.3, v.latitude, 1e-6)
-        assertEquals(-4.5, v.longitude, 1e-6)
-        assertEquals(5.2f, v.speedKnots, 0.01f)
-        assertEquals("BREST", v.destination)
+    fun `parse PositionReport au format reel AISstream`() {
+        // Format réel : données imbriquées sous Message.PositionReport, champs Sog/Cog
+        val body = """{"Message":{"PositionReport":{"Cog":120.5,"Latitude":48.3,"Longitude":-4.5,"MessageID":1,"Sog":5.2,"TrueHeading":118,"UserID":227006760}},"MessageType":"PositionReport","MetaData":{"MMSI":227006760,"ShipName":"LE PECHEUR ","latitude":48.3,"longitude":-4.5,"time_utc":"2026-08-20 10:00:00"}}"""
+        val u = AisParser.parse(body)
+        assertNotNull(u)
+        val pos = u as AisUpdate.Position
+        assertEquals(227006760L, pos.mmsi)
+        assertEquals("LE PECHEUR", pos.name)
+        assertEquals(48.3, pos.latitude, 1e-6)
+        assertEquals(-4.5, pos.longitude, 1e-6)
+        assertEquals(5.2f, pos.speedKnots, 0.01f)
+        assertEquals(120.5f, pos.course, 0.01f)
     }
 
     @Test
-    fun `message non PositionReport ignore`() {
-        assertNull(AisParser.parsePositionReport("""{"MessageType":"HeartBeat"}"""))
-        assertNull(AisParser.parsePositionReport("pas du json"))
+    fun `parse ShipStaticData enrichit type destination eta`() {
+        val body = """{"Message":{"ShipStaticData":{"Destination":"BREST","Eta":{"Month":8,"Day":21,"Hour":8,"Minute":0},"Name":"LE PECHEUR","Type":30}},"MessageType":"ShipStaticData","MetaData":{"MMSI":227006760,"ShipName":"LE PECHEUR"}}"""
+        val u = AisParser.parse(body)
+        assertNotNull(u)
+        val st = u as AisUpdate.Static
+        assertEquals(227006760L, st.mmsi)
+        assertEquals("Pêche", st.typeLabel)
+        assertEquals("BREST", st.destination)
+        assertEquals("21/08 08:00", st.eta)
+    }
+
+    @Test
+    fun `types de navires mappes`() {
+        assertEquals("Cargo", AisParser.shipTypeLabel(70))
+        assertEquals("Pétrolier", AisParser.shipTypeLabel(84))
+        assertEquals("Passagers", AisParser.shipTypeLabel(60))
+        assertEquals("Voilier", AisParser.shipTypeLabel(36))
+        assertEquals("", AisParser.shipTypeLabel(null))
+    }
+
+    @Test
+    fun `message non gere ignore`() {
+        assertNull(AisParser.parse("""{"MessageType":"HeartBeat"}"""))
+        assertNull(AisParser.parse("pas du json"))
+        // Ancien format plat (n'existe pas chez AISstream) : rejeté proprement
+        assertNull(AisParser.parse("""{"MessageType":"PositionReport","MetaData":{"MMSI":1},"Message":{"Latitude":48.0,"Longitude":2.0}}"""))
+    }
+}
+
+class StarCatalogTest {
+
+    @Test
+    fun `Polaris est au nord et a une altitude proche de la latitude`() {
+        val paris = 48.85 to 2.35
+        val polaris = StarCatalog.STARS.first { it.name == "Polaris" }
+        // Peu importe l'heure : Polaris reste à ~0,7° du pôle céleste
+        val date = java.util.Date(1755772800000L) // 2025-08-21 10:40 UTC
+        val pos = StarCatalog.position(polaris, date, paris.first, paris.second)
+        assertTrue(
+            "azimut attendu ~0° (nord), obtenu ${pos.azimuthDeg}",
+            pos.azimuthDeg < 3.0 || pos.azimuthDeg > 357.0
+        )
+        assertEquals(paris.first, pos.altitudeDeg, 2.0)
+    }
+
+    @Test
+    fun `une etoile sous l'horizon est exclue de visibleStars`() {
+        val date = java.util.Date(1755772800000L)
+        val visible = StarCatalog.visibleStars(date, 48.85, 2.35)
+        assertTrue(visible.isNotEmpty())
+        visible.forEach { (_, pos) -> assertTrue(pos.altitudeDeg > 0.0) }
+    }
+}
+
+class VersionUtilsTest {
+
+    @Test
+    fun `normalize retire le prefixe v et le suffixe`() {
+        assertEquals("1.2.3", VersionUtils.normalize("v1.2.3"))
+        assertEquals("1.2.3", VersionUtils.normalize("1.2.3-debug"))
+        assertEquals("1.2.3", VersionUtils.normalize(" V1.2.3 "))
+    }
+
+    @Test
+    fun `isNewer compare numeriquement`() {
+        assertTrue(VersionUtils.isNewer("v1.2.0", "1.1.7"))
+        assertTrue(VersionUtils.isNewer("1.10.0", "1.9.9"))
+        assertFalse(VersionUtils.isNewer("v1.1.7", "1.1.7")) // régression : re-téléchargeait à chaque lancement
+        assertFalse(VersionUtils.isNewer("1.1.7", "1.2.0"))
+        assertFalse(VersionUtils.isNewer("garbage", "1.0.0"))
     }
 }

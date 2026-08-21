@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.os.Bundle
 import androidx.core.content.ContextCompat
 import com.fabrice.spaceskysea.data.SpeedSmoother
 import com.fabrice.spaceskysea.data.UserPosition
@@ -19,8 +18,12 @@ class LocationRepository(private val context: Context) {
 
     private var manager: LocationManager? = null
     private var listener: LocationListener? = null
+    private val smoother = SpeedSmoother()
     private var lastFixMs = 0L
     private var maxSpeed = 0f
+
+    var lastPosition: UserPosition? = null
+        private set
 
     fun start(onUpdate: (UserPosition) -> Unit) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
@@ -30,27 +33,30 @@ class LocationRepository(private val context: Context) {
         }
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         manager = lm
-        SpeedSmoother.reset()
+        smoother.reset()
         maxSpeed = 0f
+        // Objet explicite (pas de lambda SAM) : avant l'API 30, les méthodes
+        // onStatusChanged/onProvider* n'ont pas d'implémentation par défaut
+        // côté appareil et leur absence provoque un AbstractMethodError.
         listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 lastFixMs = System.currentTimeMillis()
-                val smoothed = SpeedSmoother.update(location.speed)
+                val smoothed = smoother.update(location.speed)
                 if (smoothed > maxSpeed) maxSpeed = smoothed
-                onUpdate(
-                    UserPosition(
-                        latitude = location.latitude,
-                        longitude = location.longitude,
-                        speedKmh = smoothed,
-                        maxSpeedKmh = maxSpeed,
-                        bearing = location.bearing,
-                        hasFix = true,
-                    )
+                val pos = UserPosition(
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    speedMs = smoothed,
+                    maxSpeedMs = maxSpeed,
+                    bearing = location.bearing,
+                    hasFix = true,
                 )
+                lastPosition = pos
+                onUpdate(pos)
             }
 
             @Deprecated("Deprecated in API 29")
-            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
             override fun onProviderEnabled(provider: String) {}
             override fun onProviderDisabled(provider: String) {}
         }

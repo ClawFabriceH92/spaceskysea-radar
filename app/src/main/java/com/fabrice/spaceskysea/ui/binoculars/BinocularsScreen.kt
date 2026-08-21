@@ -4,9 +4,14 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +25,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -28,15 +36,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,37 +57,36 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
+import com.fabrice.spaceskysea.data.GeoUtils
 import com.fabrice.spaceskysea.data.StarCatalog
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
  * Mode Jumelles : boussole + cibles dans le cône de visée.
- * Deux vues : Horizontal (boussole + liste) et Vertical (profil du ciel
- * distance × altitude, rendu 2.5D).
+ * Quatre vues : Horizontal (boussole + liste), Vertical (profil du ciel),
+ * Contrôleur (tout le trafic) et Ciel (réalité augmentée caméra).
  */
 @Composable
 fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = viewModel()) {
     val s by vm.state.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
-    var mode by remember { mutableIntStateOf(0) } // 0 = horizontal, 1 = vertical, 2 = contrôleur, 3 = ciel
+    var mode by rememberSaveable { mutableIntStateOf(0) } // 0=horizontal, 1=vertical, 2=contrôleur, 3=ciel
 
     // Permission caméra demandée à l'entrée du mode Ciel
     val context = LocalContext.current
@@ -112,42 +122,28 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text("Jumelles", style = MaterialTheme.typography.headlineSmall)
         Text(
             "Pointez le téléphone — avions dans votre visée (±45°)",
             style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
         )
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = mode == 0,
-                onClick = { mode = 0 },
-                label = { Text("Horizontal") },
-            )
-            FilterChip(
-                selected = mode == 1,
-                onClick = { mode = 1 },
-                label = { Text("Vertical") },
-            )
-        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
         ) {
-            FilterChip(
-                selected = mode == 2,
-                onClick = { mode = 2 },
-                label = { Text("Contrôleur") },
-            )
-            FilterChip(
-                selected = mode == 3,
-                onClick = { mode = 3 },
-                label = { Text("Ciel (caméra)") },
-            )
+            listOf("Horizontal", "Vertical", "Contrôleur", "Ciel 📷").forEachIndexed { i, label ->
+                FilterChip(
+                    selected = mode == i,
+                    onClick = { mode = i },
+                    label = { Text(label) },
+                )
+            }
         }
 
         when (mode) {
@@ -167,7 +163,7 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
 
         // Fiche détail au tap sur un avion (mode Ciel / Vertical)
         selectedTarget?.let { t ->
-            androidx.compose.material3.AlertDialog(
+            AlertDialog(
                 onDismissRequest = { selectedTarget = null },
                 title = { Text("✈️ ${t.label}") },
                 text = {
@@ -177,8 +173,8 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
                         InfoLine("Altitude", altitudeText(t) +
                             (t.geoAltitudeMeters?.let { " (GPS ${it.toInt()} m)" } ?: ""))
                         InfoLine("Vitesse", t.speedKmh?.let { "${it.roundToInt()} km/h" } ?: "?")
-                        InfoLine("Cap", "${t.bearing.roundToInt()}°")
-                        InfoLine("Distance", "${t.distanceKm.roundToInt()} km")
+                        t.headingDeg?.let { InfoLine("Cap avion", "${it.roundToInt()}°") }
+                        InfoLine("Direction", "${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km")
                         InfoLine("Tendance", when {
                             (t.verticalRateMs ?: 0f) > 1f -> "▲ monte"
                             (t.verticalRateMs ?: 0f) < -1f -> "▼ descend"
@@ -195,7 +191,7 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
                     }
                 },
                 confirmButton = {
-                    androidx.compose.material3.TextButton(onClick = { selectedTarget = null }) { Text("Fermer") }
+                    TextButton(onClick = { selectedTarget = null }) { Text("Fermer") }
                 },
             )
         }
@@ -205,7 +201,7 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
 @Composable
 private fun HorizontalView(s: BinocularsState) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Compass(heading = s.heading, modifier = Modifier.size(170.dp))
+        Compass(heading = s.heading, modifier = Modifier.size(170.dp).padding(top = 4.dp))
         Text(
             "Cap ${s.heading.roundToInt()}°",
             style = MaterialTheme.typography.titleMedium,
@@ -219,11 +215,12 @@ private fun HorizontalView(s: BinocularsState) {
             Text(
                 "Aucun avion dans la visée — tournez-vous lentement",
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 12.dp),
             )
         } else {
             LazyColumn(Modifier.fillMaxWidth()) {
-                items(s.targets) { t ->
+                items(s.targets, key = { it.icao24 }) { t ->
                     TargetCard(t)
                 }
             }
@@ -240,37 +237,37 @@ private fun TargetCard(t: Target) {
         else -> "▶ niveau"
     }
     val trendColor = when {
-        vr > 1f -> Color(0xFF1B5E20)
-        vr < -1f -> Color(0xFFB71C1C)
-        else -> Color(0xFF455A64)
+        vr > 1f -> Color(0xFF2E7D32)
+        vr < -1f -> Color(0xFFC62828)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("✈️ ${t.label}", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text("✈️ ${t.label}", fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 Text(
                     t.status.ifEmpty { "En vol" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
             InfoLine("Altitude", altitudeText(t))
             InfoLine("Vitesse", t.speedKmh?.let { "${it.roundToInt()} km/h" } ?: "?")
-            InfoLine("Position", "${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km")
+            InfoLine("Direction", "${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km")
             InfoLine("Pays", t.country.ifEmpty { "?" })
             InfoLine("Tendance", trend, color = trendColor)
             t.approaching?.let { app ->
                 InfoLine(
                     "Distance",
                     if (app) "⟶ se rapproche" else "⟵ s'éloigne",
-                    color = if (app) Color(0xFF1B5E20) else Color(0xFF4E342E),
+                    color = if (app) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (t.originAirport != null || t.destinationAirport != null) {
@@ -301,11 +298,12 @@ private fun ControllerView(s: BinocularsState) {
             Text(
                 "Aucun avion détecté dans le rayon",
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 12.dp),
             )
         } else {
             LazyColumn(Modifier.fillMaxWidth()) {
-                items(s.allAircraft) { t ->
+                items(s.allAircraft, key = { it.icao24 }) { t ->
                     ControllerRow(t)
                 }
             }
@@ -340,15 +338,15 @@ private fun ControllerRow(t: Target) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Canvas(Modifier.size(12.dp)) { drawCircle(altColor) }
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "${t.label}",
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    t.label,
+                    fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.weight(1f))
@@ -356,13 +354,13 @@ private fun ControllerRow(t: Target) {
                     t.status.ifEmpty { "En vol" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
             InfoLine("Altitude", altitudeText(t) +
                 (t.geoAltitudeMeters?.let { " (GPS ${it.toInt()} m)" } ?: ""))
             InfoLine("Vitesse", t.speedKmh?.let { "${it.roundToInt()} km/h" } ?: "?")
-            InfoLine("Cap", "${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km · $trend")
+            InfoLine("Direction", "${t.bearing.roundToInt()}° · ${t.distanceKm.roundToInt()} km · $trend")
             InfoLine("Pays", t.country.ifEmpty { "?" })
             t.squawk?.let { InfoLine("Squawk", it) }
             InfoLine("ICAO24", t.icao24.uppercase())
@@ -373,7 +371,7 @@ private fun ControllerRow(t: Target) {
                 InfoLine(
                     "Distance",
                     if (app) "⟶ se rapproche" else "⟵ s'éloigne",
-                    color = if (app) Color(0xFF1B5E20) else Color(0xFF4E342E),
+                    color = if (app) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -386,18 +384,18 @@ private fun altitudeText(t: Target): String =
     else "${t.altitudeMeters?.toInt() ?: "?"} m"
 
 @Composable
-private fun InfoLine(label: String, value: String, color: Color = Color(0xFF37474F)) {
+private fun InfoLine(label: String, value: String, color: Color = Color.Unspecified) {
     Row(Modifier.padding(top = 2.dp)) {
         Text(
             "$label : ",
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFF78909C),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
-            color = color,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+            color = if (color == Color.Unspecified) MaterialTheme.colorScheme.onSurface else color,
+            fontWeight = FontWeight.Medium,
         )
     }
 }
@@ -419,6 +417,21 @@ private fun VerticalSkyView(s: BinocularsState, onTap: (Target) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(300.dp)
+                .pointerInput(s.targets, maxDist) {
+                    detectTapGestures { offset ->
+                        val margin = 24.dp.toPx()
+                        val w = size.width.toFloat()
+                        val h = size.height.toFloat()
+                        val hit = s.targets.minByOrNull { t ->
+                            val x = margin + (t.distanceKm / maxDist) * (w - margin * 2)
+                            val y = h - 10f - ((t.altitudeMeters ?: 1000f) / maxAlt) * (h - 30f)
+                            val dx = x - offset.x
+                            val dy = y - offset.y
+                            dx * dx + dy * dy
+                        }
+                        if (hit != null) onTap(hit)
+                    }
+                }
         ) {
             val w = size.width
             val h = size.height
@@ -466,12 +479,6 @@ private fun VerticalSkyView(s: BinocularsState, onTap: (Target) -> Unit) {
             // Utilisateur (en bas à gauche)
             drawCircle(Color(0xFF1B468A), radius = 7f, center = Offset(margin, h - 8f))
 
-            // Cône vertical (limite de la visée)
-            drawLine(
-                Color(0x44F57C00), Offset(margin, h - 8f),
-                Offset(margin + (h - 20f) * 0.9f, 20f), strokeWidth = 2f,
-            )
-
             // Avions : position (distance, altitude) + taille selon altitude
             s.targets.forEach { t ->
                 val x = xOf(t.distanceKm)
@@ -511,9 +518,9 @@ private fun VerticalSkyView(s: BinocularsState, onTap: (Target) -> Unit) {
         }
 
         Text(
-            "Distance → · Altitude ↑ (rayon ${s.maxDistanceKm} km)",
+            "Distance → · Altitude ↑ (rayon ${s.maxDistanceKm} km) — touchez un avion",
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFF1B468A),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -521,17 +528,22 @@ private fun VerticalSkyView(s: BinocularsState, onTap: (Target) -> Unit) {
 /**
  * Mode Ciel : carte du ciel en réalité augmentée. Levez le téléphone — la
  * CAMÉRA s'affiche en fond, avec les étoiles réelles (position astronomique
- * calculée) et les avions en surimpression (gyroscope : cap + inclinaison).
+ * calculée) et les avions en surimpression, alignés sur la direction visée
+ * par la caméra arrière (azimut + élévation).
  */
 @Composable
 private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
     val textMeasurer = rememberTextMeasurer()
     val starLabel = TextStyle(fontSize = 9.sp, color = Color(0xFFFFF59D))
     val planeLabel = TextStyle(fontSize = 10.sp, color = Color(0xFFFFCDD2))
-    val fovAz = 75f   // demi-champ en azimut
-    val fovAlt = 55f  // demi-champ en altitude
-    var showStars by remember { mutableStateOf(true) }
-    var zoom by remember { mutableFloatStateOf(1f) }
+    val fovAz = 32f   // demi-champ en azimut (≈ caméra grand angle)
+    val fovAlt = 42f  // demi-champ en élévation
+    var showStars by rememberSaveable { mutableStateOf(true) }
+    var zoom by rememberSaveable { mutableFloatStateOf(1f) }
+    // Le gestionnaire de tap vit plus longtemps qu'une recomposition : il doit
+    // lire l'état et le zoom COURANTS, pas ceux capturés à sa création.
+    val currentS by rememberUpdatedState(s)
+    val currentZoom by rememberUpdatedState(zoom)
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
@@ -541,42 +553,30 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
                 .clipToBounds()
         ) {
             CameraPreview(Modifier.fillMaxSize())
-            // Toggle Étoiles en OVERLAY (évite tout chevauchement avec la caméra)
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-                color = Color(0xCCFFFFFF),
-            ) {
-                Row(
-                    Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("⭐ Étoiles", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.width(4.dp))
-                    Switch(
-                        checked = showStars,
-                        onCheckedChange = { showStars = it },
-                        modifier = Modifier.scale(0.7f),
-                    )
-                }
-            }
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(s.targets, zoom) {
+                    .pointerInput(Unit) {
                         detectTapGestures { offset ->
                             // Conversion écran → (azimut, élévation) avec le zoom
-                            val az = s.heading - fovAz / zoom + (offset.x / size.width.toFloat()) * (2 * fovAz / zoom)
-                            val alt = s.pitchDeg - fovAlt / zoom + (1f - offset.y / size.height.toFloat()) * (2 * fovAlt / zoom)
-                            // L'avion le plus proche du point touché
-                            val hit = s.targets.minByOrNull { t ->
-                                val dAz = angularDiff(t.bearing, az)
-                                val dAlt = kotlin.math.abs(t.elevationDeg - alt)
+                            val st = currentS
+                            val fovAzE = fovAz / currentZoom
+                            val fovAltE = fovAlt / currentZoom
+                            val tapAz = st.cameraAzimuth +
+                                (offset.x / size.width - 0.5f) * 2f * fovAzE
+                            val tapElev = st.cameraElevation +
+                                (0.5f - offset.y / size.height) * 2f * fovAltE
+                            // L'avion le plus proche du point touché (< 12°)
+                            val hit = st.allAircraft.minByOrNull { t ->
+                                val dAz = GeoUtils.angularDiff(t.bearing, tapAz)
+                                val dAlt = abs(t.elevationDeg - tapElev)
                                 dAz * dAz + dAlt * dAlt
                             }
-                            if (hit != null) onTap(hit)
+                            if (hit != null) {
+                                val dAz = GeoUtils.angularDiff(hit.bearing, tapAz)
+                                val dAlt = abs(hit.elevationDeg - tapElev)
+                                if (dAz * dAz + dAlt * dAlt <= 12f * 12f) onTap(hit)
+                            }
                         }
                     }
                     .pointerInput(Unit) {
@@ -590,8 +590,14 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
                 val fovAzE = fovAz / zoom
                 val fovAltE = fovAlt / zoom
 
-                fun xOf(azDeg: Float) = (azDeg - (s.heading - fovAzE)) / (2 * fovAzE) * w
-                fun yOf(altDeg: Float) = (1f - (altDeg - (s.pitchDeg - fovAltE)) / (2 * fovAltE)) * h
+                // Position écran d'un point du ciel, relative à la visée caméra
+                fun xOf(azDeg: Float) =
+                    w / 2f + (GeoUtils.signedAngleDelta(azDeg, s.cameraAzimuth) / fovAzE) * (w / 2f)
+                fun yOf(elevDeg: Float) =
+                    h / 2f - ((elevDeg - s.cameraElevation) / fovAltE) * (h / 2f)
+                fun visible(azDeg: Float, elevDeg: Float): Boolean =
+                    GeoUtils.angularDiff(azDeg, s.cameraAzimuth) <= fovAzE &&
+                        abs(elevDeg - s.cameraElevation) <= fovAltE + 5f
 
                 // Voile sombre semi-transparent pour la lisibilité (la caméra reste visible)
                 drawRect(
@@ -602,20 +608,25 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
                 )
 
                 // Horizon
-                val horizonY = yOf(0f)
-                drawLine(Color(0x6600BFFF), Offset(0f, horizonY), Offset(w, horizonY), strokeWidth = 2f)
-                drawText(textMeasurer.measure("Horizon", TextStyle(fontSize = 8.sp, color = Color(0x9900BFFF))), topLeft = Offset(4f, horizonY + 2f))
+                if (abs(s.cameraElevation) <= fovAltE + 2f) {
+                    val horizonY = yOf(0f)
+                    drawLine(Color(0x6600BFFF), Offset(0f, horizonY), Offset(w, horizonY), strokeWidth = 2f)
+                    drawText(
+                        textMeasurer.measure("Horizon", TextStyle(fontSize = 8.sp, color = Color(0x9900BFFF))),
+                        topLeft = Offset(4f, horizonY + 2f),
+                    )
+                }
 
                 // Étoiles (option) — position astronomique réelle
                 if (showStars) {
                     val now = java.util.Date()
                     val stars = StarCatalog.visibleStars(now, s.position.latitude, s.position.longitude)
                     stars.forEach { (star, pos) ->
-                        val dx = angularDiff(pos.azimuthDeg.toFloat(), s.heading)
-                        val dy = pos.altitudeDeg.toFloat() - s.pitchDeg
-                        if (dx <= fovAzE && dy > -fovAltE && dy < fovAltE + 20f) {
-                            val x = xOf(if (pos.azimuthDeg < 180) s.heading + dx else s.heading - dx)
-                            val y = yOf(pos.altitudeDeg.toFloat())
+                        val az = pos.azimuthDeg.toFloat()
+                        val elev = pos.altitudeDeg.toFloat()
+                        if (visible(az, elev)) {
+                            val x = xOf(az)
+                            val y = yOf(elev)
                             val r = (4.5f - star.magnitude.toFloat()).coerceIn(1.5f, 4.5f)
                             drawCircle(Color(0xFFFFEB3B), radius = r, center = Offset(x, y))
                             drawText(textMeasurer.measure(star.name, starLabel), topLeft = Offset(x + 5f, y - 6f))
@@ -623,12 +634,10 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
                     }
                 }
 
-                // Avions dans le ciel (azimut + élévation)
-                s.targets.forEach { t ->
-                    val dx = angularDiff(t.bearing, s.heading)
-                    val dy = t.elevationDeg - s.pitchDeg
-                    if (dx <= fovAzE && dy > -fovAltE && dy < fovAltE + 20f) {
-                        val x = xOf(if (t.bearing < 180) s.heading + dx else s.heading - dx)
+                // Avions dans le ciel (azimut + élévation) — tout le trafic du rayon
+                s.allAircraft.forEach { t ->
+                    if (visible(t.bearing, t.elevationDeg)) {
+                        val x = xOf(t.bearing)
                         val y = yOf(t.elevationDeg)
                         drawCircle(Color(0xFFD32F2F), radius = 6f, center = Offset(x, y))
                         drawCircle(Color.White, radius = 2f, center = Offset(x, y))
@@ -640,6 +649,27 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
                             drawText(textMeasurer.measure("▼", TextStyle(fontSize = 12.sp, color = Color(0xFFEF9A9A))), topLeft = Offset(x + 6f, y + 6f))
                         }
                     }
+                }
+            }
+            // Toggle Étoiles en OVERLAY (au-dessus du canvas pour rester cliquable)
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xCCFFFFFF),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("⭐ Étoiles", style = MaterialTheme.typography.bodySmall, color = Color(0xFF1B468A))
+                    Spacer(Modifier.width(4.dp))
+                    Switch(
+                        checked = showStars,
+                        onCheckedChange = { showStars = it },
+                        modifier = Modifier.scale(0.7f),
+                    )
                 }
             }
             // Boutons de zoom (+/-)
@@ -665,23 +695,33 @@ private fun SkyView(s: BinocularsState, onTap: (Target) -> Unit) {
         }
 
         Text(
-            "Cap ${s.heading.roundToInt()}° · Inclinaison ${s.pitchDeg.roundToInt()}° — levez le téléphone",
+            "Visée ${s.cameraAzimuth.roundToInt()}° · Élévation ${s.cameraElevation.roundToInt()}° — levez le téléphone",
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFF1B468A),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Caméra + étoiles réelles + ✈️ avions (gyroscope)",
+            "Caméra + étoiles réelles + ✈️ avions — touchez un avion pour sa fiche",
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFF546E7A),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
-/** Aperçu caméra CameraX (fond du mode Ciel). */
+/** Aperçu caméra CameraX (fond du mode Ciel), libéré en quittant le mode. */
 @Composable
 private fun CameraPreview(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(Unit) {
+        onDispose {
+            // Libère la caméra quand on quitte le mode Ciel (sinon elle reste
+            // ouverte tant que l'activité vit : batterie + voyant caméra)
+            try {
+                ProcessCameraProvider.getInstance(context).get().unbindAll()
+            } catch (_: Exception) {
+            }
+        }
+    }
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -708,41 +748,54 @@ private fun CameraPreview(modifier: Modifier = Modifier) {
 
 @Composable
 private fun Compass(heading: Float, modifier: Modifier = Modifier) {
+    val textMeasurer = rememberTextMeasurer()
+    val cardinalStyle = TextStyle(
+        fontSize = 11.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.Bold,
+    )
     Canvas(modifier = modifier) {
         val r = size.minDimension / 2f
         val c = Offset(size.width / 2f, size.height / 2f)
         val rad = Math.toRadians((heading - 90f).toDouble())
 
-        drawCircle(Color(0xFF1B468A), radius = r, style = Stroke(width = 3f))
+        drawCircle(Color(0xFF1B468A), radius = r * 0.92f, style = Stroke(width = 3f), center = c)
+
+        // Points cardinaux (fixes : le téléphone tourne, pas la rose)
+        listOf("N" to 0f, "E" to 90f, "S" to 180f, "O" to 270f).forEach { (label, deg) ->
+            val a = Math.toRadians((deg - 90f).toDouble())
+            val measured = textMeasurer.measure(label, cardinalStyle)
+            drawText(
+                measured,
+                topLeft = Offset(
+                    c.x + r * 0.99f * cos(a).toFloat() - measured.size.width / 2f,
+                    c.y + r * 0.99f * sin(a).toFloat() - measured.size.height / 2f,
+                ),
+            )
+        }
 
         val tip = Offset(
-            c.x + r * 0.75f * cos(rad).toFloat(),
-            c.y + r * 0.75f * sin(rad).toFloat(),
+            c.x + r * 0.70f * cos(rad).toFloat(),
+            c.y + r * 0.70f * sin(rad).toFloat(),
         )
         val tail = Offset(
-            c.x - r * 0.75f * cos(rad).toFloat(),
-            c.y - r * 0.75f * sin(rad).toFloat(),
+            c.x - r * 0.70f * cos(rad).toFloat(),
+            c.y - r * 0.70f * sin(rad).toFloat(),
         )
         drawLine(Color(0xFFD32F2F), tail, tip, strokeWidth = 8f)
         drawCircle(Color(0xFFD32F2F), radius = 6f, center = c)
 
-        val cone1 = Math.toRadians((heading - 45f - 90f).toDouble())
-        val cone2 = Math.toRadians((heading + 45f - 90f).toDouble())
+        val cone1 = Math.toRadians((heading - BinocularsViewModel.CONE_HALF_ANGLE - 90f).toDouble())
+        val cone2 = Math.toRadians((heading + BinocularsViewModel.CONE_HALF_ANGLE - 90f).toDouble())
         drawLine(
             Color(0x88F57C00), c,
-            Offset(c.x + r * cos(cone1).toFloat(), c.y + r * sin(cone1).toFloat()),
+            Offset(c.x + r * 0.92f * cos(cone1).toFloat(), c.y + r * 0.92f * sin(cone1).toFloat()),
             strokeWidth = 3f,
         )
         drawLine(
             Color(0x88F57C00), c,
-            Offset(c.x + r * cos(cone2).toFloat(), c.y + r * sin(cone2).toFloat()),
+            Offset(c.x + r * 0.92f * cos(cone2).toFloat(), c.y + r * 0.92f * sin(cone2).toFloat()),
             strokeWidth = 3f,
         )
     }
-}
-
-/** Différence angulaire minimale entre deux caps [0..180]. */
-private fun angularDiff(a: Float, b: Float): Float {
-    val d = (a - b) % 360
-    return if (d > 180) 360 - d else if (d < -180) d + 360 else d
 }

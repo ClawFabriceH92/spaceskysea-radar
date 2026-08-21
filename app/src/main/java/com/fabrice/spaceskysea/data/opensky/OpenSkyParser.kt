@@ -46,7 +46,7 @@ object OpenSkyParser {
                 verticalRateMs = f(11),
                 geoAltitudeMeters = f(13),
                 squawk = s(14),
-                lastContactMs = arr.getOrNull(4)?.takeIf { it !is JsonNull }
+                lastContactSec = arr.getOrNull(4)?.takeIf { it !is JsonNull }
                     ?.jsonPrimitive?.longOrNull,
                 positionSource = arr.getOrNull(16)?.takeIf { it !is JsonNull }
                     ?.jsonPrimitive?.let {

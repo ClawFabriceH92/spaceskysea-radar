@@ -1,6 +1,12 @@
 package com.fabrice.spaceskysea.data
 
-import kotlin.math.*
+import kotlin.math.asin
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** Bounding box (lat/lon min/max) autour d'une position, en km. */
 data class BoundingBox(
@@ -34,11 +40,31 @@ object GeoUtils {
                 cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
         return 2 * EARTH_RADIUS_KM * asin(sqrt(a))
     }
+
+    /** Relèvement (0=N, 90=E) depuis le point 1 vers le point 2. */
+    fun bearingTo(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+        val dLon = Math.toRadians(lon2 - lon1)
+        val y = sin(dLon) * cos(Math.toRadians(lat2))
+        val x = cos(Math.toRadians(lat1)) * sin(Math.toRadians(lat2)) -
+                sin(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * cos(dLon)
+        val deg = Math.toDegrees(atan2(y, x)).toFloat()
+        return if (deg < 0) deg + 360f else deg
+    }
+
+    /** Écart angulaire signé b→a dans [-180, 180) : négatif = a à gauche de b. */
+    fun signedAngleDelta(a: Float, b: Float): Float {
+        var d = (a - b) % 360f
+        if (d < -180f) d += 360f
+        if (d >= 180f) d -= 360f
+        return d
+    }
+
+    /** Écart angulaire absolu minimal entre deux caps, dans [0, 180]. */
+    fun angularDiff(a: Float, b: Float): Float = abs(signedAngleDelta(a, b))
 }
 
-/** Lissage exponentiel (EMA). */
-object SpeedSmoother {
-    private const val ALPHA = 0.3f
+/** Lissage exponentiel (EMA) — une instance par flux de mesures. */
+class SpeedSmoother(private val alpha: Float = 0.3f) {
     private var current: Float = 0f
     private var initialized = false
 
@@ -52,7 +78,7 @@ object SpeedSmoother {
             initialized = true
             raw
         } else {
-            ALPHA * raw + (1f - ALPHA) * current
+            alpha * raw + (1f - alpha) * current
         }
         return current
     }
@@ -73,7 +99,7 @@ object AirlineTable {
         "brussels" to "BEL", "tap" to "TAP", "tap air portugal" to "TAP",
         "alitalia" to "AZA", "ita" to "ITA", "aer lingus" to "EIN",
         "finnair" to "FIN", "sas" to "SAS", "scandinavian" to "SAS",
-        "lot" to "LOT", "austrian" to "AUA", "finnair" to "FIN",
+        "lot" to "LOT", "austrian" to "AUA",
         "wizz" to "WZZ", "jet2" to "EXS", "pegasus" to "PGT",
         "aeroflot" to "AFL", "etihad" to "ETD", "kuwait" to "KAC",
         "air arabia" to "ABY", "norwegian" to "NAX", "icelandair" to "ICE",
@@ -86,8 +112,11 @@ object AirlineTable {
         "copa" to "CMP", "aeromexico" to "AMX", "westjet" to "WJA",
         "jetblue" to "JBU", "southwest" to "SWA", "spirit" to "NKS",
         "frontier" to "FFT", "alaska" to "ASA", "hawaiian" to "HAL",
-        "virgin atlantic" to "VIR", "virgin" to "VIR", "ba" to "BAW",
-        "af" to "AFR", "lh" to "DLH", "kl" to "KLM", "ey" to "ETD",
+        "virgin atlantic" to "VIR", "virgin" to "VIR",
+        "corsair" to "CRL", "french bee" to "FBU", "air caraibes" to "FWI",
+        "air caraïbes" to "FWI", "air corsica" to "CCM", "air austral" to "REU",
+        "volotea" to "VOE", "luxair" to "LGL", "aegean" to "AEE",
+        "ba" to "BAW", "af" to "AFR", "lh" to "DLH", "kl" to "KLM", "ey" to "ETD",
     )
 
     /**

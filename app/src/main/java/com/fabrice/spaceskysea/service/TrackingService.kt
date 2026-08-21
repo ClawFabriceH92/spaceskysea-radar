@@ -12,8 +12,6 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.fabrice.spaceskysea.MainActivity
-import com.fabrice.spaceskysea.R
-import com.fabrice.spaceskysea.data.SettingsStore
 import com.fabrice.spaceskysea.data.location.LocationRepository
 
 /**
@@ -28,6 +26,15 @@ class TrackingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Android 14+ refuse un service de type "location" sans la permission :
+        // on s'arrête proprement plutôt que de planter.
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            stopSelf()
+            return
+        }
         createChannel()
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= 34) {
@@ -38,7 +45,6 @@ class TrackingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val settings = SettingsStore(this)
         if (location == null) {
             location = LocationRepository(this)
             location?.start {

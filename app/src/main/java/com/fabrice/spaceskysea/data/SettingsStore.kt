@@ -86,4 +86,12 @@ class SettingsStore(context: Context) {
         }
         return value.roundToInt().toString()
     }
+
+    /** Libellé court de l'unité de vitesse choisie. */
+    val speedUnitLabel: String
+        get() = when (speedUnit) {
+            "knots" -> "nds"
+            "mph" -> "mph"
+            else -> "km/h"
+        }
 }

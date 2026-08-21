@@ -11,7 +11,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
-import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
@@ -25,7 +25,7 @@ sealed class OpenSkyResult {
 
 /**
  * Repository OpenSky Network (REST).
- * - anonyme par défaut, Basic Auth si les credentials sont configurés
+ * - anonyme par défaut, OAuth2 Bearer si les credentials sont configurés
  * - HTTP 429 → QuotaExceeded (pop-up + repli)
  */
 class OpenSkyRepository(private val settings: SettingsStore) {
@@ -41,8 +41,8 @@ class OpenSkyRepository(private val settings: SettingsStore) {
     private var cachedToken: String? = null
     private var tokenExpiresAtMs: Long = 0L
 
-    // Cooldown global sur l'API itinéraire (flights/aircraft) après un 429 :
-    // ne plus réessayer pendant 10 min pour ne pas marteler le serveur
+    // Cooldown global sur l'API itinéraire (flights/aircraft) après un 429,
+    // calé sur le header X-Rate-Limit-Retry-After-Seconds du serveur
     private var flightRouteCooldownUntilMs: Long = 0L
 
     // Nombre de requêtes restantes (header x-rate-limit-remaining OpenSky)
@@ -57,19 +57,19 @@ class OpenSkyRepository(private val settings: SettingsStore) {
     }
 
     /** Obtient (ou rafraîchit) le token OAuth2 via Keycloak OpenSky. */
+    @Synchronized
     private fun getToken(): String? {
         val now = System.currentTimeMillis()
         if (!cachedToken.isNullOrBlank() && now < tokenExpiresAtMs - 60_000) return cachedToken
         return try {
-            val form = "grant_type=client_credentials" +
-                "&client_id=${settings.openskyClientId}" +
-                "&client_secret=${settings.openskyClientSecret}"
+            val form = FormBody.Builder()
+                .add("grant_type", "client_credentials")
+                .add("client_id", settings.openskyClientId)
+                .add("client_secret", settings.openskyClientSecret)
+                .build()
             val req = Request.Builder()
                 .url("https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token")
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .post(okhttp3.RequestBody.create(
-                    "application/x-www-form-urlencoded".toMediaType(), form
-                ))
+                .post(form)
                 .build()
             client.newCall(req).execute().use { resp ->
                 if (resp.code != 200) return null

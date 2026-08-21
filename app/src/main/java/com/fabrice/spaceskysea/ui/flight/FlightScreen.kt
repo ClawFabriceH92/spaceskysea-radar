@@ -15,7 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -25,6 +25,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fabrice.spaceskysea.data.SettingsStore
 import com.fabrice.spaceskysea.data.TrackedFlight
 import com.fabrice.spaceskysea.data.flight.FlightRepository
+import com.fabrice.spaceskysea.data.location.LocationRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,18 +40,29 @@ data class FlightUiState(
 class FlightViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repo = FlightRepository(SettingsStore(application))
+    private val location = LocationRepository(application)
 
     private val _state = MutableStateFlow(FlightUiState())
     val state: StateFlow<FlightUiState> = _state.asStateFlow()
 
+    init {
+        // Capture la position pour centrer la recherche sur l'utilisateur
+        location.start { }
+    }
+
     fun search(company: String, number: String) {
         viewModelScope.launch {
             _state.value = FlightUiState(searching = true)
-            val result = repo.resolveFlight(company, number)
+            val pos = location.lastPosition
+            val result = if (pos != null) {
+                repo.resolveFlight(company, number, pos.latitude, pos.longitude)
+            } else {
+                repo.resolveFlight(company, number)
+            }
             _state.value = if (result != null) {
                 FlightUiState(flight = result)
             } else {
-                FlightUiState(error = "Vol introuvable. Vérifiez la compagnie et le numéro (ex : Air France AF1234).")
+                FlightUiState(error = "Vol introuvable dans la zone (rayon ~800 km). Vérifiez la compagnie et le numéro (ex : Air France AF1234) — le vol doit être en l'air ou au sol avec transpondeur actif.")
             }
         }
     }
@@ -58,13 +70,18 @@ class FlightViewModel(application: Application) : AndroidViewModel(application) 
     fun clearError() {
         _state.value = _state.value.copy(error = null)
     }
+
+    override fun onCleared() {
+        location.stop()
+        super.onCleared()
+    }
 }
 
 @Composable
 fun FlightScreen(modifier: Modifier = Modifier, vm: FlightViewModel = viewModel()) {
     val s by vm.state.collectAsState()
-    var company by remember { mutableStateOf("") }
-    var number by remember { mutableStateOf("") }
+    var company by rememberSaveable { mutableStateOf("") }
+    var number by rememberSaveable { mutableStateOf("") }
 
     Column(
         modifier = modifier
@@ -73,8 +90,10 @@ fun FlightScreen(modifier: Modifier = Modifier, vm: FlightViewModel = viewModel(
     ) {
         Text("Suivi d'un vol", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Entrez une compagnie et un numéro de vol, ex : Air France AF1234",
+            "Entrez une compagnie et un numéro de vol, ex : Air France AF1234. " +
+                "La recherche couvre un large rayon autour de votre position.",
             style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
         )
         OutlinedTextField(
@@ -120,12 +139,11 @@ fun FlightScreen(modifier: Modifier = Modifier, vm: FlightViewModel = viewModel(
                     Text("🛫 ${f.callsign}", style = MaterialTheme.typography.titleMedium)
                     Text("Statut : ${f.status}")
                     f.latitude?.let { lat -> f.longitude?.let { lon ->
-                        Text("Position : $lat, $lon")
+                        Text("Position : ${"%.4f".format(lat)}, ${"%.4f".format(lon)}")
                     } }
                     f.altitudeMeters?.let { Text("Altitude : ${it.toInt()} m") }
                     f.velocityMs?.let { Text("Vitesse : ${(it * 3.6).toInt()} km/h") }
                     f.heading?.let { Text("Cap : ${it.toInt()}°") }
-                    Text("Progression : ${f.originAirport ?: "?"} → ${f.destinationAirport ?: "?"}", Modifier.padding(top = 4.dp))
                 }
             }
         }

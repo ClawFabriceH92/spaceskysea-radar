@@ -1,31 +1,45 @@
 package com.fabrice.spaceskysea.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Button
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.launch
 import com.fabrice.spaceskysea.data.SettingsStore
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -78,8 +92,8 @@ fun SettingsScreen(
             }
         }
         // Import du fichier credentials.json (portail OpenSky)
-        val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(
-            androidx.activity.result.contract.ActivityResultContracts.GetContent()
+        val filePicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.GetContent()
         ) { uri: android.net.Uri? ->
             if (uri != null) {
                 importError = settingsViewModel.importOpenSkyCredentials(uri)
@@ -94,7 +108,7 @@ fun SettingsScreen(
             )
         } else {
             Text(
-                "ℹ️ OpenSky anonyme (400 req/jour) — importez vos credentials pour 4000 req/jour + aéroports",
+                "ℹ️ OpenSky anonyme (400 req/jour) — importez vos credentials pour 4000 req/jour + itinéraires",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
@@ -121,7 +135,10 @@ fun SettingsScreen(
             onClick = {
                 if (pasteJson.isNotBlank()) {
                     importError = settingsViewModel.applyOpenSkyJson(pasteJson)
-                    if (importError == null) runConnectionTest()
+                    if (importError == null) {
+                        pasteJson = ""
+                        runConnectionTest()
+                    }
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -140,9 +157,9 @@ fun SettingsScreen(
         connTest?.let { (ok, msg) ->
             Text(
                 msg,
-                color = if (ok) Color(0xFF1B5E20) else MaterialTheme.colorScheme.error,
+                color = if (ok) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                fontWeight = FontWeight.SemiBold,
             )
         }
         importError?.let {
@@ -160,19 +177,21 @@ fun SettingsScreen(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        OutlinedTextField(
+        SecretField(
             value = s.openskyClientSecret,
             onValueChange = { settingsViewModel.setOpenSkyClientSecret(it) },
-            label = { Text("OpenSky clientSecret") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            label = "OpenSky clientSecret",
         )
-        OutlinedTextField(
+        SecretField(
             value = s.aisstreamKey,
             onValueChange = { settingsViewModel.setAisKey(it) },
-            label = { Text("AISstream clé API") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            label = "AISstream clé API",
+        )
+        Text(
+            "Clé AISstream gratuite sur aisstream.io — nécessaire pour voir les navires.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(top = 2.dp),
         )
 
         SectionTitle("Suivi")
@@ -181,8 +200,48 @@ fun SettingsScreen(
             onBackgroundTrackingChanged?.invoke(it)
         }
 
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+        SectionTitle("À propos")
+        val context = LocalContext.current
+        val version = remember {
+            try {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
+            } catch (_: Exception) {
+                "?"
+            }
+        }
+        Text("SpaceSkySea Radar v$version", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "Données : OpenSky Network (avions) · AISstream.io (navires)\n" +
+                "Carte : © OpenStreetMap contributors © CARTO\n" +
+                "github.com/ClawFabriceH92/spaceskysea-radar",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+        )
     }
+}
+
+@Composable
+private fun SecretField(value: String, onValueChange: (String) -> Unit, label: String) {
+    var visible by rememberSaveable { mutableStateOf(false) }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    if (visible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = if (visible) "Masquer" else "Afficher",
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
@@ -197,7 +256,7 @@ private fun SectionTitle(text: String) {
 
 @Composable
 private fun ToggleRow(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) {
-    androidx.compose.material3.ListItem(
+    ListItem(
         headlineContent = { Text(label) },
         trailingContent = { Switch(checked = checked, onCheckedChange = onToggle) },
     )
@@ -207,7 +266,11 @@ private fun ToggleRow(label: String, checked: Boolean, onToggle: (Boolean) -> Un
 private fun ChoiceRow(label: String, options: List<String>, current: String, onPick: (String) -> Unit) {
     Column(Modifier.padding(vertical = 4.dp)) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
-        androidx.compose.foundation.layout.Row(Modifier.padding(top = 4.dp)) {
+        Row(
+            Modifier
+                .padding(top = 4.dp)
+                .horizontalScroll(rememberScrollState())
+        ) {
             options.forEach { opt ->
                 val selected = opt == current
                 androidx.compose.material3.FilterChip(

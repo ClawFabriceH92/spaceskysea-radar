@@ -1,9 +1,7 @@
 package com.fabrice.spaceskysea.data
 
-import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
  * Catalogue des étoiles brillantes + calcul de leur position (azimut, altitude)
@@ -61,7 +59,6 @@ object StarCatalog {
         Star("Saiph", 5.8071, -9.6696, 2.07),
         Star("Bellatrix", 5.4180, 6.3497, 1.64),
         Star("Adhara", 6.9759, -28.9721, 1.50),
-        Star("Sirius B", 6.7525, -16.7161, 8.4),
         Star("Acrux", 12.4435, -63.0991, 0.77),
         Star("Gacrux", 12.5288, -57.1132, 1.64),
         Star("Mimosa", 12.7062, -59.6888, 1.25),
@@ -83,11 +80,14 @@ object StarCatalog {
         val altRad = Math.asin(
             sin(latRad) * sin(decRad) + cos(latRad) * cos(decRad) * cos(hRad)
         )
+        // atan2(sin H, cos H·sin φ − tan δ·cos φ) donne l'azimut compté depuis
+        // le SUD (convention astronomique) ; +180° pour la boussole (0 = Nord).
         val azRad = Math.atan2(
             sin(hRad),
             cos(hRad) * sin(latRad) - Math.tan(decRad) * cos(latRad)
         )
-        var az = Math.toDegrees(azRad)
+        var az = Math.toDegrees(azRad) + 180.0
+        az %= 360.0
         if (az < 0) az += 360.0
         return SkyPosition(az, Math.toDegrees(altRad))
     }

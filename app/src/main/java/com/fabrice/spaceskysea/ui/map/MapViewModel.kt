@@ -39,6 +39,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val _routeLoading = MutableStateFlow(false)
     val routeLoading: StateFlow<Boolean> = _routeLoading.asStateFlow()
 
+    // Cache des itinéraires par icao24 (évite une requête à chaque tap)
+    private val routesCache = mutableMapOf<String, Pair<String, String>>()
+
     private var pollingJob: Job? = null
 
     init {
@@ -51,21 +54,27 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         pollingJob = viewModelScope.launch {
             while (isActive) {
                 val pos = _userPosition.value
-                if (pos.hasFix || true) {
-                    refreshAircraft(pos)
-                }
+                // Sans fix GPS on interroge quand même la zone par défaut :
+                // mieux vaut montrer du trafic que rien au premier lancement.
+                refreshAircraft(pos)
+                // AIS : (re)connecte si une clé vient d'être saisie et suit
+                // la position (re-souscription quand la boîte a bougé).
+                ais.ensureConnected(
+                    pos.latitude, pos.longitude, settings.vesselRadiusKm.toDouble()
+                )
                 delay(settings.refreshMs)
             }
         }
-        // Le flux AISstream est poussé : on re-souscrit à chaque mouvement de la boîte
+        // Le flux AISstream est poussé : le repository fusionne et renvoie la
+        // liste complète des navires vus récemment (dédupliqués par MMSI).
         ais.start(
             _userPosition.value.latitude,
             _userPosition.value.longitude,
             settings.vesselRadiusKm.toDouble(),
         ) { vessels ->
             _radar.value = _radar.value.copy(
-                vessels = _radar.value.vessels + vessels,
-                vesselCount = _radar.value.vessels.size + 1,
+                vessels = vessels,
+                vesselCount = vessels.size,
                 lastUpdateMs = System.currentTimeMillis(),
             )
         }
@@ -105,25 +114,22 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateAisBoundingBox() {
-        val pos = _userPosition.value
-        ais.updateBoundingBox(pos.latitude, pos.longitude, settings.vesselRadiusKm.toDouble())
-    }
-
-    fun clearVessels() {
-        _radar.value = _radar.value.copy(vessels = emptyList(), vesselCount = 0)
-    }
-
     fun dismissApiBlocked() {
         _radar.value = _radar.value.copy(apiBlocked = false, apiBlockedSource = null)
     }
 
     /** Charge l'itinéraire (départ → arrivée) d'un avion au tap. */
-    fun loadAircraftRoute(icao24: String, callsign: String) {
+    fun loadAircraftRoute(icao24: String) {
+        routesCache[icao24]?.let {
+            _selectedRoute.value = it
+            _routeLoading.value = false
+            return
+        }
         _selectedRoute.value = null
         _routeLoading.value = true
         viewModelScope.launch {
             val route = opensky.fetchFlightRoute(icao24)
+            if (route != null && route.first != "LIMIT") routesCache[icao24] = route
             _selectedRoute.value = route
             _routeLoading.value = false
         }

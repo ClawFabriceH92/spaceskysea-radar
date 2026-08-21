@@ -2,12 +2,12 @@ package com.fabrice.spaceskysea.data
 
 import kotlinx.serialization.Serializable
 
-/** Position de l'utilisateur avec vitesse/cap GPS. */
+/** Position de l'utilisateur avec vitesse/cap GPS (vitesses en m/s). */
 data class UserPosition(
     val latitude: Double,
     val longitude: Double,
-    val speedKmh: Float,
-    val maxSpeedKmh: Float,
+    val speedMs: Float,
+    val maxSpeedMs: Float,
     val bearing: Float,
     val hasFix: Boolean,
 )
@@ -27,7 +27,7 @@ data class Aircraft(
     val verticalRateMs: Float? = null,
     val geoAltitudeMeters: Float? = null,  // altitude géométrique (GPS)
     val squawk: String? = null,           // code transpondeur (ex: 7000)
-    val lastContactMs: Long? = null,      // timestamp du dernier contact
+    val lastContactSec: Long? = null,     // timestamp Unix (s) du dernier contact
     val positionSource: Int? = null,      // 0=ADS-B, 1=ASTERIX, 2=MLAT
 )
 
