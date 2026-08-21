@@ -13,10 +13,30 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
-/** Parsing pur de la réponse OpenSky (testable sans Android). */
+/** Parsing pur des réponses OpenSky (testable sans Android). */
 object OpenSkyParser {
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    /**
+     * Réponse de /flights/aircraft : liste des vols récents de l'appareil.
+     * Renvoie (départ, arrivée) du vol LE PLUS RÉCENT (= celui en cours),
+     * en codes OACI 4 lettres (ex. LFPG) — l'arrivée est souvent null tant
+     * que l'avion vole. Null si aucun vol n'a d'aéroport connu.
+     */
+    fun parseFlightRoute(body: String): Pair<String?, String?>? {
+        val arr = json.parseToJsonElement(body).jsonArray
+        val latest = arr.mapNotNull { it as? kotlinx.serialization.json.JsonObject }
+            .maxByOrNull { it["firstSeen"]?.jsonPrimitive?.longOrNull ?: 0L }
+            ?: return null
+        fun airport(key: String): String? =
+            latest[key]?.takeIf { it !is JsonNull }?.jsonPrimitive?.contentOrNull
+                ?.trim()?.ifBlank { null }
+        val origin = airport("estDepartureAirport")
+        val dest = airport("estArrivalAirport")
+        if (origin == null && dest == null) return null
+        return origin to dest
+    }
 
     fun parseStates(body: String): List<Aircraft> {
         val root = json.parseToJsonElement(body).jsonObject

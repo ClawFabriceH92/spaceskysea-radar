@@ -1,6 +1,7 @@
 package com.fabrice.spaceskysea
 
 import com.fabrice.spaceskysea.data.AirlineTable
+import com.fabrice.spaceskysea.data.AirportTable
 import com.fabrice.spaceskysea.data.GeoUtils
 import com.fabrice.spaceskysea.data.SpeedSmoother
 import com.fabrice.spaceskysea.data.StarCatalog
@@ -198,6 +199,37 @@ class AisParsingTest {
         assertNull(AisParser.parse("pas du json"))
         // Ancien format plat (n'existe pas chez AISstream) : rejeté proprement
         assertNull(AisParser.parse("""{"MessageType":"PositionReport","MetaData":{"MMSI":1},"Message":{"Latitude":48.0,"Longitude":2.0}}"""))
+    }
+}
+
+class FlightRouteParsingTest {
+
+    @Test
+    fun `parse route au format reel OpenSky (codes OACI 4 lettres)`() {
+        // Régression : les codes OACI (4 lettres) étaient rejetés (filtre == 3 lettres)
+        val body = """[
+            {"icao24":"3944ef","firstSeen":1755700000,"estDepartureAirport":"LFPG","lastSeen":1755707200,"estArrivalAirport":"EGLL","callsign":"AFR1234"},
+            {"icao24":"3944ef","firstSeen":1755760000,"estDepartureAirport":"LFPO","lastSeen":1755767200,"estArrivalAirport":null,"callsign":"AFR5678"}
+        ]"""
+        val route = OpenSkyParser.parseFlightRoute(body)
+        assertNotNull(route)
+        // Le vol le plus récent (firstSeen max) est retenu, arrivée inconnue = null
+        assertEquals("LFPO", route!!.first)
+        assertNull(route.second)
+    }
+
+    @Test
+    fun `liste vide ou sans aeroports donne null`() {
+        assertNull(OpenSkyParser.parseFlightRoute("[]"))
+        assertNull(OpenSkyParser.parseFlightRoute("""[{"icao24":"abc","firstSeen":1,"estDepartureAirport":null,"estArrivalAirport":null}]"""))
+    }
+
+    @Test
+    fun `AirportTable convertit OACI en libelle lisible`() {
+        assertEquals("CDG Paris", AirportTable.display("LFPG"))
+        assertEquals("ORY Paris-Orly", AirportTable.display("lfpo"))
+        assertEquals("JFK New York", AirportTable.display("KJFK"))
+        assertEquals("UUWW", AirportTable.display("UUWW")) // inconnu : tel quel
     }
 }
 

@@ -1,13 +1,13 @@
 package com.fabrice.spaceskysea.data.opensky
 
 import com.fabrice.spaceskysea.data.Aircraft
+import com.fabrice.spaceskysea.data.AirportTable
 import com.fabrice.spaceskysea.data.GeoUtils
 import com.fabrice.spaceskysea.data.SettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -168,8 +168,10 @@ class OpenSkyRepository(private val settings: SettingsStore) {
         }
     }
 
-    /** Route d'un vol : [origine, destination] (codes IATA 3 lettres, ex. CDG/ORY).
-     *  Utilise /api/flights/aircraft (vols d'un avion sur 24 h) — plus fiable que /api/routes. */
+    /** Route d'un vol : [origine, destination] prêtes à afficher (« CDG Paris »).
+     *  Utilise /api/flights/aircraft ; OpenSky renvoie des codes OACI 4 lettres
+     *  (LFPG…) convertis via [AirportTable]. Fenêtre de 12 h pour couvrir les
+     *  long-courriers en vol. */
     suspend fun fetchFlightRoute(icao24: String): Pair<String, String>? = withContext(Dispatchers.IO) {
         // Cooldown après un 429 : retourne le marqueur LIMIT sans requête
         if (System.currentTimeMillis() < flightRouteCooldownUntilMs) {
@@ -177,7 +179,7 @@ class OpenSkyRepository(private val settings: SettingsStore) {
         }
         try {
             val now = System.currentTimeMillis() / 1000
-            val begin = now - 3 * 3600 // 3 h suffisent pour le départ (24 h = trop de crédits OpenSky)
+            val begin = now - 12 * 3600
             val url = "https://opensky-network.org/api/flights/aircraft" +
                 "?icao24=$icao24&begin=$begin&end=$now"
             val builder = Request.Builder().url(url).header("User-Agent", "SpaceSkySeaRadar/1.0")
@@ -186,21 +188,12 @@ class OpenSkyRepository(private val settings: SettingsStore) {
                 when (resp.code) {
                     200 -> {
                         val body = resp.body?.string() ?: return@withContext null
-                        val arr = json.parseToJsonElement(body).jsonArray
-                        for (el in arr) {
-                            val obj = el.jsonObject
-                            val origin = obj["estDepartureAirport"]?.jsonPrimitive?.contentOrNull
-                            val dest = obj["estArrivalAirport"]?.jsonPrimitive?.contentOrNull
-                            // IMPORTANT : un avion EN VOL a souvent l'arrivée encore vide (None).
-                            // On retourne dès que le DÉPART est connu ; l'arrivée s'affiche quand dispo.
-                            if (origin != null && origin.length == 3) {
-                                return@withContext origin to (dest?.takeIf { it.length == 3 } ?: "?")
-                            }
-                            if (dest != null && dest.length == 3) {
-                                return@withContext "?" to dest
-                            }
-                        }
-                        null
+                        // Un avion EN VOL a souvent l'arrivée encore inconnue :
+                        // on affiche le départ dès qu'il est connu, "?" sinon.
+                        val route = OpenSkyParser.parseFlightRoute(body)
+                            ?: return@withContext null
+                        (route.first?.let(AirportTable::display) ?: "?") to
+                            (route.second?.let(AirportTable::display) ?: "?")
                     }
                     429 -> {
                         // Le serveur indique le temps exact d'attente (X-Rate-Limit-Retry-After-Seconds)
