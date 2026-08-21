@@ -42,7 +42,11 @@ class MainActivity : ComponentActivity() {
     private val settingsViewModel: SettingsViewModel by viewModels()
 
     private val locationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            // La permission vient (peut-être) d'être accordée : démarre le GPS
+            // sans attendre le prochain cycle du flux partagé
+            com.fabrice.spaceskysea.data.opensky.AircraftFeed.get(this).retryLocationStart()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

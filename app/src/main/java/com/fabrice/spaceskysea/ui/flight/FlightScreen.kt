@@ -22,10 +22,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.fabrice.spaceskysea.data.SettingsStore
 import com.fabrice.spaceskysea.data.TrackedFlight
 import com.fabrice.spaceskysea.data.flight.FlightRepository
-import com.fabrice.spaceskysea.data.location.LocationRepository
+import com.fabrice.spaceskysea.data.opensky.AircraftFeed
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,22 +38,17 @@ data class FlightUiState(
 
 class FlightViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repo = FlightRepository(SettingsStore(application))
-    private val location = LocationRepository(application)
+    private val feed = AircraftFeed.get(application)
+    private val repo = FlightRepository(feed.repository)
 
     private val _state = MutableStateFlow(FlightUiState())
     val state: StateFlow<FlightUiState> = _state.asStateFlow()
 
-    init {
-        // Capture la position pour centrer la recherche sur l'utilisateur
-        location.start { }
-    }
-
     fun search(company: String, number: String) {
         viewModelScope.launch {
             _state.value = FlightUiState(searching = true)
-            val pos = location.lastPosition
-            val result = if (pos != null) {
+            val pos = feed.userPosition.value
+            val result = if (pos.hasFix) {
                 repo.resolveFlight(company, number, pos.latitude, pos.longitude)
             } else {
                 repo.resolveFlight(company, number)
@@ -69,11 +63,6 @@ class FlightViewModel(application: Application) : AndroidViewModel(application) 
 
     fun clearError() {
         _state.value = _state.value.copy(error = null)
-    }
-
-    override fun onCleared() {
-        location.stop()
-        super.onCleared()
     }
 }
 

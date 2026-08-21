@@ -19,7 +19,9 @@ import java.util.concurrent.TimeUnit
 
 sealed class OpenSkyResult {
     data class Success(val aircraft: List<Aircraft>) : OpenSkyResult()
-    data object QuotaExceeded : OpenSkyResult()
+
+    /** 429 — [retryAfterSec] vient du header X-Rate-Limit-Retry-After-Seconds. */
+    data class QuotaExceeded(val retryAfterSec: Long?) : OpenSkyResult()
     data class Error(val message: String) : OpenSkyResult()
 }
 
@@ -121,7 +123,9 @@ class OpenSkyRepository(private val settings: SettingsStore) {
                     val body = response.body?.string() ?: return@withContext OpenSkyResult.Error("Réponse vide")
                     OpenSkyResult.Success(OpenSkyParser.parseStates(body))
                 }
-                429 -> OpenSkyResult.QuotaExceeded
+                429 -> OpenSkyResult.QuotaExceeded(
+                    response.header("x-rate-limit-retry-after-seconds")?.toLongOrNull()
+                )
                 else -> OpenSkyResult.Error("Erreur HTTP ${response.code}")
             }
         } catch (e: IOException) {

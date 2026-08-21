@@ -26,6 +26,7 @@ class LocationRepository(private val context: Context) {
         private set
 
     fun start(onUpdate: (UserPosition) -> Unit) {
+        if (listener != null) return // déjà démarré (appel idempotent)
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {

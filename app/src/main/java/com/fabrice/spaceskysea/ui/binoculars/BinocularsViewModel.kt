@@ -12,9 +12,7 @@ import com.fabrice.spaceskysea.data.Aircraft
 import com.fabrice.spaceskysea.data.GeoUtils
 import com.fabrice.spaceskysea.data.SettingsStore
 import com.fabrice.spaceskysea.data.UserPosition
-import com.fabrice.spaceskysea.data.location.LocationRepository
-import com.fabrice.spaceskysea.data.opensky.OpenSkyRepository
-import com.fabrice.spaceskysea.data.opensky.OpenSkyResult
+import com.fabrice.spaceskysea.data.opensky.AircraftFeed
 import kotlin.math.asin
 import kotlin.math.atan2
 import kotlinx.coroutines.Job
@@ -22,7 +20,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class Target(
@@ -52,13 +49,14 @@ data class BinocularsState(
     val targets: List<Target> = emptyList(),      // cibles dans le cône de visée (±45°)
     val allAircraft: List<Target> = emptyList(),  // TOUT le trafic (mode contrôleur)
     val totalAircraft: Int = 0,
-    val apiBlocked: Boolean = false,
+    val blockedUntilMs: Long = 0L,    // quota OpenSky atteint jusqu'à cet instant
     val maxDistanceKm: Int = 50,      // rayon de recherche configuré
 )
 
 /**
  * Mode Jumelles : boussole + avions dans le cône de visée (±45°).
- * L'orientation est dérivée de la matrice de rotation complète :
+ * Le trafic vient du flux partagé [AircraftFeed] (une seule requête OpenSky
+ * pour toute l'app). L'orientation est dérivée de la matrice de rotation :
  * - [BinocularsState.heading] : azimut de l'axe haut du téléphone (modes à plat)
  * - [BinocularsState.cameraAzimuth]/[BinocularsState.cameraElevation] :
  *   direction de la caméra arrière (mode Ciel, téléphone levé) — stable même
@@ -67,8 +65,7 @@ data class BinocularsState(
 class BinocularsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val settings = SettingsStore(application)
-    private val opensky = OpenSkyRepository(settings)
-    private val location = LocationRepository(application)
+    private val feed = AircraftFeed.get(application)
 
     private val sensorManager =
         application.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -84,8 +81,7 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
     private val routesCache = mutableMapOf<String, Pair<String, String>>()
     // Dernier essai par icao24 (retente après 5 min si échec)
     private val routesAttemptedAt = mutableMapOf<String, Long>()
-
-    private var pollingJob: Job? = null
+    private var routesJob: Job? = null
 
     // Lissage : EMA angulaire (gère le passage 359°→0°)
     private var smoothHeading: Float? = null
@@ -137,62 +133,59 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
 
     init {
         _state.value = _state.value.copy(maxDistanceKm = settings.aircraftRadiusKm)
-        location.start { pos -> _state.value = _state.value.copy(position = pos) }
-        pollingJob = viewModelScope.launch {
-            while (isActive) {
-                refreshAircraft()
-                delay(settings.refreshMs)
+        viewModelScope.launch {
+            feed.userPosition.collect { pos ->
+                _state.value = _state.value.copy(position = pos)
+            }
+        }
+        viewModelScope.launch {
+            feed.state.collect { f ->
+                rebuildTargets(f)
+                // Départ/arrivée en tâche de fond, jamais deux fois en parallèle
+                if (f.aircraft.isNotEmpty() && routesJob?.isActive != true) {
+                    routesJob = viewModelScope.launch {
+                        fetchMissingRoutes(_state.value.allAircraft)
+                    }
+                }
             }
         }
     }
 
-    private suspend fun refreshAircraft() {
+    private fun rebuildTargets(f: AircraftFeed.FeedState) {
         val pos = _state.value.position
-        when (val result = opensky.fetchAircrafts(
-            pos.latitude, pos.longitude, settings.aircraftRadiusKm.toDouble()
-        )) {
-            is OpenSkyResult.Success -> {
-                val all = result.aircraft.filter { it.latitude != null && it.longitude != null }
-                    .distinctBy { it.icao24 } // clé des listes UI : jamais de doublon
-                    .map { ac ->
-                        val bearing = GeoUtils.bearingTo(
-                            pos.latitude, pos.longitude, ac.latitude!!, ac.longitude!!
-                        )
-                        val dist = GeoUtils.distanceKm(
-                            pos.latitude, pos.longitude, ac.latitude!!, ac.longitude!!
-                        ).toFloat()
-                        val route = routesCache[ac.icao24]
-                        Target(
-                            label = ac.callsign.ifEmpty { ac.icao24 },
-                            bearing = bearing,
-                            distanceKm = dist,
-                            altitudeMeters = ac.altitudeMeters,
-                            speedKmh = ac.velocityMs?.let { it * 3.6f },
-                            headingDeg = ac.heading,
-                            verticalRateMs = ac.verticalRateMs,
-                            country = ac.originCountry,
-                            elevationDeg = elevationOf(ac.altitudeMeters, dist),
-                            approaching = trendOf(ac.icao24, dist),
-                            status = statusOf(ac),
-                            geoAltitudeMeters = ac.geoAltitudeMeters,
-                            squawk = ac.squawk,
-                            icao24 = ac.icao24,
-                            originAirport = route?.first,
-                            destinationAirport = route?.second,
-                        )
-                    }
-                    .sortedBy { it.distanceKm }
-                // Purge l'historique des distances des avions disparus
-                lastDistance.keys.retainAll(all.map { it.icao24 }.toSet())
-                publishAircraft(all, totalCount = result.aircraft.size)
-                fetchMissingRoutes(all)
+        val all = f.aircraft.filter { it.latitude != null && it.longitude != null }
+            .distinctBy { it.icao24 } // clé des listes UI : jamais de doublon
+            .map { ac ->
+                val bearing = GeoUtils.bearingTo(
+                    pos.latitude, pos.longitude, ac.latitude!!, ac.longitude!!
+                )
+                val dist = GeoUtils.distanceKm(
+                    pos.latitude, pos.longitude, ac.latitude!!, ac.longitude!!
+                ).toFloat()
+                val route = routesCache[ac.icao24]
+                Target(
+                    label = ac.callsign.ifEmpty { ac.icao24 },
+                    bearing = bearing,
+                    distanceKm = dist,
+                    altitudeMeters = ac.altitudeMeters,
+                    speedKmh = ac.velocityMs?.let { it * 3.6f },
+                    headingDeg = ac.heading,
+                    verticalRateMs = ac.verticalRateMs,
+                    country = ac.originCountry,
+                    elevationDeg = elevationOf(ac.altitudeMeters, dist),
+                    approaching = trendOf(ac.icao24, dist),
+                    status = statusOf(ac),
+                    geoAltitudeMeters = ac.geoAltitudeMeters,
+                    squawk = ac.squawk,
+                    icao24 = ac.icao24,
+                    originAirport = route?.first,
+                    destinationAirport = route?.second,
+                )
             }
-            OpenSkyResult.QuotaExceeded -> {
-                _state.value = _state.value.copy(apiBlocked = true)
-                delay(60_000)
-            }
-            is OpenSkyResult.Error -> Unit
-        }
+            .sortedBy { it.distanceKm }
+        // Purge l'historique des distances des avions disparus
+        lastDistance.keys.retainAll(all.map { it.icao24 }.toSet())
+        publishAircraft(all, totalCount = f.aircraft.size, blockedUntilMs = f.blockedUntilMs)
     }
 
     /** Départ/arrivée : max 3 avions (les plus proches) par cycle, espacés de 1,5 s. */
@@ -205,7 +198,7 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
         if (missing.isEmpty()) return
         for (t in missing) {
             routesAttemptedAt[t.icao24] = nowMs
-            val route = opensky.fetchFlightRoute(t.icao24)
+            val route = feed.repository.fetchFlightRoute(t.icao24)
             if (route != null && route.first != "LIMIT") routesCache[t.icao24] = route
             delay(1500) // respecte le rate limit OpenSky (1 req/s max)
         }
@@ -214,16 +207,17 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
                 t.copy(originAirport = r.first, destinationAirport = r.second)
             } ?: t
         }
-        publishAircraft(updated, totalCount = _state.value.totalAircraft)
+        publishAircraft(updated, totalCount = _state.value.totalAircraft,
+            blockedUntilMs = _state.value.blockedUntilMs)
     }
 
-    private fun publishAircraft(all: List<Target>, totalCount: Int) {
+    private fun publishAircraft(all: List<Target>, totalCount: Int, blockedUntilMs: Long) {
         val heading = _state.value.heading
         _state.value = _state.value.copy(
             targets = coneFilter(all, heading),
             allAircraft = all,
             totalAircraft = totalCount,
-            apiBlocked = false,
+            blockedUntilMs = blockedUntilMs,
             maxDistanceKm = settings.aircraftRadiusKm,
         )
     }
@@ -274,7 +268,6 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
 
     override fun onCleared() {
         sensorManager.unregisterListener(sensorListener)
-        location.stop()
         super.onCleared()
     }
 

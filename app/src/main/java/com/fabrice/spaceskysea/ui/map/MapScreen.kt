@@ -232,26 +232,38 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                 Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (radar.loading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "Mise à jour…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF455A64),
-                    )
-                } else if (radar.lastUpdateMs > 0L) {
-                    Text(
-                        "✓ À jour",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF1B5E20),
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                val blocked = radar.blockedUntilMs > System.currentTimeMillis()
+                when {
+                    blocked -> {
+                        Text(
+                            "⏳ Quota OpenSky — reprise ${retryDelayText(radar.blockedUntilMs)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFE65100),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    radar.loading -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Mise à jour…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF455A64),
+                        )
+                    }
+                    radar.lastUpdateMs > 0L -> {
+                        Text(
+                            "✓ À jour",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF1B5E20),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
-                radar.rateLimitRemaining?.let { rl ->
+                if (!blocked) radar.rateLimitRemaining?.let { rl ->
                     Spacer(Modifier.width(8.dp))
                     Text(
                         "· $rl req",
@@ -284,18 +296,6 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                 .padding(20.dp)
         ) {
             Icon(Icons.Filled.MyLocation, contentDescription = "Recentrer")
-        }
-
-        // Pop-up quota API
-        if (radar.apiBlocked) {
-            AlertDialog(
-                onDismissRequest = { vm.dismissApiBlocked() },
-                title = { Text("Quota API dépassé") },
-                text = { Text("L'application va réessayer automatiquement dans 60 s. Configurez vos clés API dans Paramètres pour augmenter le quota.") },
-                confirmButton = {
-                    TextButton(onClick = { vm.dismissApiBlocked() }) { Text("OK") }
-                }
-            )
         }
 
         // Fiche détail avion (avec indicateur de chargement pendant la requête itinéraire)
@@ -423,6 +423,16 @@ private fun SpeedBanner(
                 Text("⚠️ Clé AISstream manquante", color = Color(0xFFFFEB3B), fontSize = 12.sp)
             }
         }
+    }
+}
+
+/** "dans X min" / "dans X h" / "dans <1 min" pour un instant futur. */
+private fun retryDelayText(untilMs: Long): String {
+    val min = ((untilMs - System.currentTimeMillis()) / 60_000L).coerceAtLeast(0)
+    return when {
+        min >= 120 -> "dans ${min / 60} h"
+        min >= 1 -> "dans $min min"
+        else -> "dans <1 min"
     }
 }
 

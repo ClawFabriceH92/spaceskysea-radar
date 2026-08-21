@@ -69,6 +69,5 @@ data class RadarState(
     val lastUpdateMs: Long = 0L,
     val loading: Boolean = false,
     val rateLimitRemaining: Int? = null,
-    val apiBlocked: Boolean = false,
-    val apiBlockedSource: String? = null,
+    val blockedUntilMs: Long = 0L,   // quota OpenSky atteint jusqu'à cet instant (0 = OK)
 )
