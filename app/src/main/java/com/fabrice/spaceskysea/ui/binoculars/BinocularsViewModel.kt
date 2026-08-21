@@ -208,15 +208,15 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
                 (routesAttemptedAt[t.icao24]?.let { startMs - it > 300_000 } ?: true)
         }.take(20)
         for (t in missing) {
-            if (System.currentTimeMillis() < feed.repository.routeCooldownUntilMs) break
+            if (feed.routes.allSourcesBlocked) break
             routesAttemptedAt[t.icao24] = System.currentTimeMillis()
-            val route = feed.repository.fetchFlightRoute(t.icao24)
-            if (route != null && route.first == "LIMIT") break // quota itinéraires atteint
+            val route = feed.routes.fetchRoute(t.label, t.icao24)
+            if (route != null && route.first == "LIMIT") break // toutes sources bloquées
             if (route != null) {
                 routesCache[t.icao24] = route
                 mergeRoutesIntoState()
             }
-            delay(3000) // espacement large : ménage le rate limit OpenSky
+            delay(3000) // espacement large : ménage les fournisseurs
         }
     }
 

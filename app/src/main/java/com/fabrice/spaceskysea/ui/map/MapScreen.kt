@@ -311,7 +311,7 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
             val route by vm.selectedRoute.collectAsState()
             val routeLoading by vm.routeLoading.collectAsState()
             LaunchedEffect(ac.icao24) {
-                vm.loadAircraftRoute(ac.icao24)
+                vm.loadAircraftRoute(ac.icao24, ac.callsign)
             }
             AlertDialog(
                 onDismissRequest = { selectedAircraft = null; vm.clearSelectedRoute() },
@@ -346,9 +346,11 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                                 }
                             }
                             route?.first == "LIMIT" -> {
+                                val retryAt = vm.routeRetryAtMs
                                 Text(
-                                    "⏳ Limite OpenSky sur l'itinéraire épuisée — le serveur bloque cette API (souvent ~22 h). " +
-                                        "Le radar avions continue normalement.",
+                                    "⏳ Itinéraires temporairement indisponibles (limite des fournisseurs)" +
+                                        (if (retryAt > 0) " — reprise ${retryDelayText(retryAt)}" else "") +
+                                        ". Le radar avions continue normalement.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFFE65100),
                                 )

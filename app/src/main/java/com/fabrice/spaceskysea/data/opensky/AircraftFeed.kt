@@ -34,6 +34,7 @@ class AircraftFeed private constructor(context: Context) {
 
     private val settings = SettingsStore(context)
     val repository = OpenSkyRepository(settings)
+    val routes = com.fabrice.spaceskysea.data.routes.RouteProvider(repository)
     private val location = LocationRepository(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 

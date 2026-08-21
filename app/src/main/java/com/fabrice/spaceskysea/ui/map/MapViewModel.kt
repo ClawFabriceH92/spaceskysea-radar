@@ -70,8 +70,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Prochain instant où les itinéraires redeviennent disponibles (0 = OK). */
+    val routeRetryAtMs: Long
+        get() = feed.routes.retryAtMs
+
     /** Charge l'itinéraire (départ → arrivée) d'un avion au tap. */
-    fun loadAircraftRoute(icao24: String) {
+    fun loadAircraftRoute(icao24: String, callsign: String) {
         routesCache[icao24]?.let {
             _selectedRoute.value = it
             _routeLoading.value = false
@@ -80,7 +84,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         _selectedRoute.value = null
         _routeLoading.value = true
         viewModelScope.launch {
-            val route = feed.repository.fetchFlightRoute(icao24)
+            val route = feed.routes.fetchRoute(callsign, icao24)
             if (route != null && route.first != "LIMIT") routesCache[icao24] = route
             _selectedRoute.value = route
             _routeLoading.value = false

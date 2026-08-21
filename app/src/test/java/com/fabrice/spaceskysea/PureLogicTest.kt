@@ -8,6 +8,7 @@ import com.fabrice.spaceskysea.data.StarCatalog
 import com.fabrice.spaceskysea.data.ais.AisParser
 import com.fabrice.spaceskysea.data.ais.AisUpdate
 import com.fabrice.spaceskysea.data.opensky.OpenSkyParser
+import com.fabrice.spaceskysea.data.routes.AdsbdbParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -230,6 +231,35 @@ class FlightRouteParsingTest {
         assertEquals("ORY Paris-Orly", AirportTable.display("lfpo"))
         assertEquals("JFK New York", AirportTable.display("KJFK"))
         assertEquals("UUWW", AirportTable.display("UUWW")) // inconnu : tel quel
+    }
+}
+
+class AdsbdbParsingTest {
+
+    @Test
+    fun `parse une route ADSBdb au format reel`() {
+        val body = """{"response":{"flightroute":{"callsign":"AFR276","callsign_icao":"AFR276","callsign_iata":"AF276","origin":{"country_iso_name":"FR","country_name":"France","elevation":392,"iata_code":"CDG","icao_code":"LFPG","latitude":49.012798,"longitude":2.55,"municipality":"Paris","name":"Charles de Gaulle International Airport"},"destination":{"country_iso_name":"JP","country_name":"Japan","elevation":26,"iata_code":"KIX","icao_code":"RJBB","latitude":34.42729949951172,"longitude":135.24400329589844,"municipality":"Osaka","name":"Kansai International Airport"}}}}"""
+        val route = AdsbdbParser.parseRoute(body)
+        assertNotNull(route)
+        assertEquals("CDG Paris", route!!.first)
+        assertEquals("KIX Osaka", route.second)
+    }
+
+    @Test
+    fun `indicatif inconnu ou reponse invalide donne null`() {
+        assertNull(AdsbdbParser.parseRoute("""{"response":"unknown callsign"}"""))
+        assertNull(AdsbdbParser.parseRoute("""{"response":{"flightroute":{"callsign":"X"}}}"""))
+        assertNull(AdsbdbParser.parseRoute("pas du json"))
+        assertNull(AdsbdbParser.parseRoute(""))
+    }
+
+    @Test
+    fun `ville absente donne le code seul`() {
+        val body = """{"response":{"flightroute":{"origin":{"iata_code":"CDG","municipality":"Paris"},"destination":{"icao_code":"ZZZZ"}}}}"""
+        val route = AdsbdbParser.parseRoute(body)
+        assertNotNull(route)
+        assertEquals("CDG Paris", route!!.first)
+        assertEquals("ZZZZ", route.second)
     }
 }
 
