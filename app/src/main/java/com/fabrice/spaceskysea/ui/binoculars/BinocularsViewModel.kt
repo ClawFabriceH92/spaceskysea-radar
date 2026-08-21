@@ -77,8 +77,8 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
     // Historique des distances par avion (pour rapproche/éloigne)
     private val lastDistance = mutableMapOf<String, Float>()
 
-    // Cache des routes (départ/arrivée) par icao24 — succès uniquement
-    private val routesCache = mutableMapOf<String, Pair<String, String>>()
+    // Cache des routes partagé avec la Carte (succès uniquement)
+    private val routesCache = feed.routesCache
     // Dernier essai par icao24 (retente après 5 min si échec)
     private val routesAttemptedAt = mutableMapOf<String, Long>()
     private var routesJob: Job? = null
@@ -141,8 +141,10 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             feed.state.collect { f ->
                 rebuildTargets(f)
-                // Départ/arrivée en tâche de fond, jamais deux fois en parallèle
-                if (f.aircraft.isNotEmpty() && routesJob?.isActive != true) {
+                // Départ/arrivée en tâche de fond : redémarre le balayage à
+                // chaque rafraîchissement pour re-prioriser les plus proches
+                if (f.aircraft.isNotEmpty()) {
+                    routesJob?.cancel()
                     routesJob = viewModelScope.launch {
                         fetchMissingRoutes(_state.value.allAircraft)
                     }
@@ -188,20 +190,34 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
         publishAircraft(all, totalCount = f.aircraft.size, blockedUntilMs = f.blockedUntilMs)
     }
 
-    /** Départ/arrivée : max 3 avions (les plus proches) par cycle, espacés de 1,5 s. */
+    /**
+     * Départ/arrivée : les avions les plus proches d'abord, puis balayage en
+     * arrière-plan de proche en proche jusqu'au rayon configuré ([all] est
+     * déjà trié par distance et borné par le paramétrage). Espacé de 2 s,
+     * mise à jour progressive de l'UI, et arrêt immédiat pendant le cooldown
+     * imposé par le serveur (429 sur l'API itinéraire).
+     */
     private suspend fun fetchMissingRoutes(all: List<Target>) {
-        val nowMs = System.currentTimeMillis()
-        val missing = all.take(3).filter { t ->
+        val startMs = System.currentTimeMillis()
+        val missing = all.filter { t ->
             !routesCache.containsKey(t.icao24) &&
-                (routesAttemptedAt[t.icao24]?.let { nowMs - it > 300_000 } ?: true)
+                (routesAttemptedAt[t.icao24]?.let { startMs - it > 300_000 } ?: true)
         }
-        if (missing.isEmpty()) return
         for (t in missing) {
-            routesAttemptedAt[t.icao24] = nowMs
+            if (System.currentTimeMillis() < feed.repository.routeCooldownUntilMs) break
+            routesAttemptedAt[t.icao24] = System.currentTimeMillis()
             val route = feed.repository.fetchFlightRoute(t.icao24)
-            if (route != null && route.first != "LIMIT") routesCache[t.icao24] = route
-            delay(1500) // respecte le rate limit OpenSky (1 req/s max)
+            if (route != null && route.first == "LIMIT") break // quota itinéraires atteint
+            if (route != null) {
+                routesCache[t.icao24] = route
+                mergeRoutesIntoState()
+            }
+            delay(2000) // respecte le rate limit OpenSky (1 req/s max)
         }
+    }
+
+    /** Réinjecte le cache de routes dans les listes affichées. */
+    private fun mergeRoutesIntoState() {
         val updated = _state.value.allAircraft.map { t ->
             routesCache[t.icao24]?.let { r ->
                 t.copy(originAirport = r.first, destinationAirport = r.second)

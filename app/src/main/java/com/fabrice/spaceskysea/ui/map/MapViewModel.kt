@@ -31,8 +31,8 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val _routeLoading = MutableStateFlow(false)
     val routeLoading: StateFlow<Boolean> = _routeLoading.asStateFlow()
 
-    // Cache des itinéraires par icao24 (évite une requête à chaque tap)
-    private val routesCache = mutableMapOf<String, Pair<String, String>>()
+    // Cache des itinéraires partagé avec les Jumelles (rempli en arrière-plan)
+    private val routesCache = feed.routesCache
 
     init {
         // Avions : flux partagé — une seule requête OpenSky pour toute l'app

@@ -45,7 +45,12 @@ class OpenSkyRepository(private val settings: SettingsStore) {
 
     // Cooldown global sur l'API itinéraire (flights/aircraft) après un 429,
     // calé sur le header X-Rate-Limit-Retry-After-Seconds du serveur
+    @Volatile
     private var flightRouteCooldownUntilMs: Long = 0L
+
+    /** Instant jusqu'auquel l'API itinéraire est bloquée (0 = disponible). */
+    val routeCooldownUntilMs: Long
+        get() = flightRouteCooldownUntilMs
 
     // Nombre de requêtes restantes (header x-rate-limit-remaining OpenSky)
     @Volatile

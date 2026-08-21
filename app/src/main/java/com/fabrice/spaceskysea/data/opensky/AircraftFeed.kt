@@ -48,6 +48,13 @@ class AircraftFeed private constructor(context: Context) {
     private val _state = MutableStateFlow(FeedState())
     val state: StateFlow<FeedState> = _state.asStateFlow()
 
+    /**
+     * Cache partagé des itinéraires (icao24 → départ/arrivée) : rempli par le
+     * balayage de fond des Jumelles et par les fiches de la Carte — chaque
+     * avion n'est interrogé qu'une fois pour toute l'app.
+     */
+    val routesCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
+
     private val _userPosition = MutableStateFlow(
         UserPosition(48.85, 2.35, 0f, 0f, 0f, hasFix = false)
     )
