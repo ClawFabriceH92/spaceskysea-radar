@@ -22,7 +22,10 @@ data class SettingsUiState(
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val store = SettingsStore(application)
-    private val opensky = com.fabrice.spaceskysea.data.opensky.OpenSkyRepository(store)
+
+    // Repository PARTAGÉ : le test de connexion met le token en cache pour
+    // tout le flux (la prochaine requête radar part authentifiée aussitôt)
+    private val opensky = com.fabrice.spaceskysea.data.opensky.AircraftFeed.get(application).repository
 
     private val _state = MutableStateFlow(readState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()

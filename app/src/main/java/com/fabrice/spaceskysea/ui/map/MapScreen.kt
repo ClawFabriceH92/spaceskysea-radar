@@ -242,6 +242,14 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
+                    radar.authFailed -> {
+                        Text(
+                            "⚠️ Clé OpenSky refusée — requêtes anonymes",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFC62828),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                     radar.loading -> {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
@@ -353,7 +361,10 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                             }
                             else -> {
                                 Text(
-                                    "🛫 Itinéraire : non disponible (importez credentials.json dans Paramètres pour l'activer)",
+                                    if (settings.hasOpenSkyCredentials)
+                                        "🛫 Itinéraire inconnu pour ce vol (pas d'estimation OpenSky)"
+                                    else
+                                        "🛫 Itinéraire : non disponible (importez credentials.json dans Paramètres pour l'activer)",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.outline,
                                 )

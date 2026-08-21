@@ -43,6 +43,7 @@ class AircraftFeed private constructor(context: Context) {
         val loading: Boolean = false,
         val rateLimitRemaining: Int? = null,
         val blockedUntilMs: Long = 0L,   // 0 = pas bloqué par un 429
+        val authFailed: Boolean = false, // credentials présents mais token refusé
     )
 
     private val _state = MutableStateFlow(FeedState())
@@ -86,6 +87,7 @@ class AircraftFeed private constructor(context: Context) {
             pos.latitude, pos.longitude, settings.aircraftRadiusKm.toDouble()
         )
         val now = System.currentTimeMillis()
+        val authFailed = repository.lastAuthState == OpenSkyAuthState.FAILED
         return when (result) {
             is OpenSkyResult.Success -> {
                 _state.value = FeedState(
@@ -94,6 +96,7 @@ class AircraftFeed private constructor(context: Context) {
                     loading = false,
                     rateLimitRemaining = repository.lastRateLimitRemaining,
                     blockedUntilMs = 0L,
+                    authFailed = authFailed,
                 )
                 stretchedInterval()
             }
@@ -104,6 +107,7 @@ class AircraftFeed private constructor(context: Context) {
                     loading = false,
                     rateLimitRemaining = repository.lastRateLimitRemaining,
                     blockedUntilMs = now + waitMs,
+                    authFailed = authFailed,
                 )
                 waitMs
             }
@@ -111,6 +115,7 @@ class AircraftFeed private constructor(context: Context) {
                 _state.value = _state.value.copy(
                     loading = false,
                     rateLimitRemaining = repository.lastRateLimitRemaining,
+                    authFailed = authFailed,
                 )
                 settings.refreshMs
             }

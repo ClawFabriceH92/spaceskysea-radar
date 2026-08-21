@@ -212,13 +212,47 @@ fun SettingsScreen(
             }
         }
         Text("SpaceSkySea Radar v$version", style = MaterialTheme.typography.bodyMedium)
+
+        // Vérification manuelle de mise à jour (GitHub Releases)
+        var updateStatus by remember { mutableStateOf<String?>(null) }
+        Button(
+            onClick = {
+                updateStatus = "Vérification en cours…"
+                scope.launch {
+                    val result = com.fabrice.spaceskysea.UpdateManager(context).checkNow()
+                    updateStatus = when (result) {
+                        is com.fabrice.spaceskysea.UpdateCheck.UpToDate ->
+                            "✅ Vous avez la dernière version (v${result.current})"
+                        is com.fabrice.spaceskysea.UpdateCheck.Downloading ->
+                            "⬇️ v${result.version} disponible — téléchargement lancé : " +
+                                "ouvrez l'APK depuis la barre de notifications (ou Téléchargements) pour installer"
+                        is com.fabrice.spaceskysea.UpdateCheck.Failed ->
+                            "❌ ${result.message}"
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+        ) {
+            Text("🔄 Vérifier les mises à jour")
+        }
+        updateStatus?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (it.startsWith("❌")) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.primary,
+            )
+        }
+
         Text(
             "Données : OpenSky Network (avions) · AISstream.io (navires)\n" +
                 "Carte : © OpenStreetMap contributors © CARTO\n" +
                 "github.com/ClawFabriceH92/spaceskysea-radar",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
     }
 }

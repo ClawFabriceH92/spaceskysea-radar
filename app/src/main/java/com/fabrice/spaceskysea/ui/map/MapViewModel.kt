@@ -45,6 +45,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     loading = f.loading,
                     rateLimitRemaining = f.rateLimitRemaining,
                     blockedUntilMs = f.blockedUntilMs,
+                    authFailed = f.authFailed,
                 )
                 // AIS : (re)connecte si une clé vient d'être saisie et suit
                 // la position (re-souscription quand la boîte a bougé)

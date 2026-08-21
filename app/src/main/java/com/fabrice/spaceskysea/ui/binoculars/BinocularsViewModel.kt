@@ -50,6 +50,7 @@ data class BinocularsState(
     val allAircraft: List<Target> = emptyList(),  // TOUT le trafic (mode contrôleur)
     val totalAircraft: Int = 0,
     val blockedUntilMs: Long = 0L,    // quota OpenSky atteint jusqu'à cet instant
+    val authFailed: Boolean = false,  // clé OpenSky configurée mais refusée
     val maxDistanceKm: Int = 50,      // rayon de recherche configuré
 )
 
@@ -187,6 +188,7 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
             .sortedBy { it.distanceKm }
         // Purge l'historique des distances des avions disparus
         lastDistance.keys.retainAll(all.map { it.icao24 }.toSet())
+        _state.value = _state.value.copy(authFailed = f.authFailed)
         publishAircraft(all, totalCount = f.aircraft.size, blockedUntilMs = f.blockedUntilMs)
     }
 
@@ -199,10 +201,12 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
      */
     private suspend fun fetchMissingRoutes(all: List<Target>) {
         val startMs = System.currentTimeMillis()
+        // 20 par passe max : la passe suivante reprend là où celle-ci s'arrête
+        // (le cache grandit) — préserve le budget limité de l'API itinéraires.
         val missing = all.filter { t ->
             !routesCache.containsKey(t.icao24) &&
                 (routesAttemptedAt[t.icao24]?.let { startMs - it > 300_000 } ?: true)
-        }
+        }.take(20)
         for (t in missing) {
             if (System.currentTimeMillis() < feed.repository.routeCooldownUntilMs) break
             routesAttemptedAt[t.icao24] = System.currentTimeMillis()
@@ -212,7 +216,7 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
                 routesCache[t.icao24] = route
                 mergeRoutesIntoState()
             }
-            delay(2000) // respecte le rate limit OpenSky (1 req/s max)
+            delay(3000) // espacement large : ménage le rate limit OpenSky
         }
     }
 

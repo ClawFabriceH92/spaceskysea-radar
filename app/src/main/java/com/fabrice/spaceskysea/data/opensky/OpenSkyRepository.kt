@@ -25,6 +25,13 @@ sealed class OpenSkyResult {
     data class Error(val message: String) : OpenSkyResult()
 }
 
+/** Mode d'authentification de la DERNIÈRE requête réellement envoyée. */
+enum class OpenSkyAuthState {
+    ANONYMOUS,       // pas de credentials configurés
+    AUTHENTICATED,   // Bearer attaché
+    FAILED,          // credentials configurés mais token refusé → requête anonyme !
+}
+
 /**
  * Repository OpenSky Network (REST).
  * - anonyme par défaut, OAuth2 Bearer si les credentials sont configurés
@@ -55,6 +62,11 @@ class OpenSkyRepository(private val settings: SettingsStore) {
     // Nombre de requêtes restantes (header x-rate-limit-remaining OpenSky)
     @Volatile
     var lastRateLimitRemaining: Int? = null
+
+    /** État d'authentification de la dernière requête (affiché dans l'UI). */
+    @Volatile
+    var lastAuthState: OpenSkyAuthState = OpenSkyAuthState.ANONYMOUS
+        private set
 
     /** Header Authorization : Bearer si credentials OAuth2 configurés. */
     private fun authHeader(): String? {
@@ -99,7 +111,15 @@ class OpenSkyRepository(private val settings: SettingsStore) {
 
     /** Exécute une requête avec Bearer ; en cas de 401 (token expiré), refetch le token et retente une fois. */
     private suspend fun executeAuth(builder: Request.Builder): okhttp3.Response {
-        authHeader()?.let { builder.header("Authorization", it) }
+        val header = authHeader()
+        // Sans ce suivi, un token refusé retombe SILENCIEUSEMENT en anonyme
+        // (quota 400/jour) et l'utilisateur croit sa clé active.
+        lastAuthState = when {
+            header != null -> OpenSkyAuthState.AUTHENTICATED
+            settings.hasOpenSkyCredentials -> OpenSkyAuthState.FAILED
+            else -> OpenSkyAuthState.ANONYMOUS
+        }
+        header?.let { builder.header("Authorization", it) }
         var resp = client.newCall(builder.build()).execute()
         if (resp.code == 401 && settings.hasOpenSkyCredentials) {
             resp.close()
@@ -108,6 +128,9 @@ class OpenSkyRepository(private val settings: SettingsStore) {
             if (retryAuth != null) {
                 builder.header("Authorization", retryAuth)
                 resp = client.newCall(builder.build()).execute()
+            }
+            if (resp.code == 401 || resp.code == 403 || retryAuth == null) {
+                lastAuthState = OpenSkyAuthState.FAILED
             }
         }
         return resp

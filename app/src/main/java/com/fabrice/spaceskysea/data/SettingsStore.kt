@@ -57,15 +57,15 @@ class SettingsStore(context: Context) {
 
     var openskyClientId: String
         get() = prefs.getString("opensky_cid", "") ?: ""
-        set(v) = prefs.edit().putString("opensky_cid", v).apply()
+        set(v) = prefs.edit().putString("opensky_cid", v.trim()).apply()
 
     var openskyClientSecret: String
         get() = prefs.getString("opensky_csecret", "") ?: ""
-        set(v) = prefs.edit().putString("opensky_csecret", v).apply()
+        set(v) = prefs.edit().putString("opensky_csecret", v.trim()).apply()
 
     var aisstreamKey: String
         get() = prefs.getString("aisstream_key", "") ?: ""
-        set(v) = prefs.edit().putString("aisstream_key", v).apply()
+        set(v) = prefs.edit().putString("aisstream_key", v.trim()).apply()
 
     var backgroundTrackingEnabled: Boolean
         get() = prefs.getBoolean("background_tracking", false)

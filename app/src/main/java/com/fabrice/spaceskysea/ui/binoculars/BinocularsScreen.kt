@@ -162,6 +162,14 @@ fun BinocularsScreen(modifier: Modifier = Modifier, vm: BinocularsViewModel = vi
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
+        if (s.authFailed) {
+            Text(
+                "⚠️ Clé OpenSky refusée — vérifiez vos credentials dans Paramètres",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
 
         // Fiche détail au tap sur un avion (mode Ciel / Vertical)
         selectedTarget?.let { t ->

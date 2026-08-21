@@ -70,4 +70,5 @@ data class RadarState(
     val loading: Boolean = false,
     val rateLimitRemaining: Int? = null,
     val blockedUntilMs: Long = 0L,   // quota OpenSky atteint jusqu'à cet instant (0 = OK)
+    val authFailed: Boolean = false, // clé OpenSky configurée mais refusée
 )
