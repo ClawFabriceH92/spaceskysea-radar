@@ -76,7 +76,7 @@ class TrackingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("SpaceSkySea Radar")
             .setContentText("Suivi en arrière-plan actif")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(com.fabrice.spaceskysea.R.drawable.ic_stat_plane)
             .setOngoing(true)
             .setContentIntent(contentIntent)
             .build()
