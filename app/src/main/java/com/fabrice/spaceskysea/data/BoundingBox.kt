@@ -51,6 +51,17 @@ object GeoUtils {
         return if (deg < 0) deg + 360f else deg
     }
 
+    /** Position atteinte depuis (lat, lon) en suivant [bearingDeg] sur [distanceMeters]. */
+    fun offsetPosition(
+        lat: Double, lon: Double, bearingDeg: Double, distanceMeters: Double
+    ): Pair<Double, Double> {
+        val rad = Math.toRadians(bearingDeg)
+        val dLat = distanceMeters * cos(rad) / 111_320.0
+        val dLon = distanceMeters * sin(rad) /
+            (111_320.0 * cos(Math.toRadians(lat)).coerceAtLeast(0.05))
+        return (lat + dLat) to (lon + dLon)
+    }
+
     /** Écart angulaire signé b→a dans [-180, 180) : négatif = a à gauche de b. */
     fun signedAngleDelta(a: Float, b: Float): Float {
         var d = (a - b) % 360f

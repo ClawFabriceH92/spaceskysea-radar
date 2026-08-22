@@ -27,7 +27,7 @@ class SettingsStore(context: Context) {
 
         val AIRCRAFT_RADII = listOf(25, 50, 100, 200)
         val VESSEL_RADII = listOf(5, 10, 25, 50)
-        val REFRESH_OPTIONS_SECONDS = listOf(15, 25, 30, 60)
+        val REFRESH_OPTIONS_SECONDS = listOf(10, 15, 25, 30, 60)
         val SPEED_UNITS = listOf("kmh", "knots", "mph")
     }
 

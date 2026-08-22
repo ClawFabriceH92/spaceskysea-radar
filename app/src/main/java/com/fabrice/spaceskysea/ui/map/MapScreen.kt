@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -90,13 +91,15 @@ private class CartoVoyagerSource : XYTileSource(
     }
 }
 
-/** État des overlays déjà rendus : évite de reconstruire les marqueurs à chaque frame. */
+/** État des overlays déjà rendus : mises à jour incrémentales (1 Hz avec
+ *  l'extrapolation) au lieu de reconstruire tous les marqueurs. */
 private class OverlayHolder {
     var aircraft: List<Aircraft>? = null
     var vessels: List<Vessel>? = null
     var aircraftLayer = true
     var vesselLayer = true
-    val trafficMarkers = mutableListOf<Marker>()
+    val aircraftMarkers = HashMap<String, Marker>()
+    val vesselMarkers = HashMap<Long, Marker>()
     var userMarker: Marker? = null
     val iconCache = HashMap<Long, Drawable>()
 }
@@ -147,33 +150,33 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
             update = { mv ->
                 val aircraftLayer = settings.aircraftLayerEnabled
                 val vesselLayer = settings.vesselLayerEnabled
-                val trafficChanged = holder.aircraft !== radar.aircraft ||
-                    holder.vessels !== radar.vessels ||
-                    holder.aircraftLayer != aircraftLayer ||
-                    holder.vesselLayer != vesselLayer
-                if (trafficChanged) {
+                var dirty = false
+                if (holder.aircraft !== radar.aircraft || holder.aircraftLayer != aircraftLayer) {
                     holder.aircraft = radar.aircraft
-                    holder.vessels = radar.vessels
                     holder.aircraftLayer = aircraftLayer
-                    holder.vesselLayer = vesselLayer
-                    mv.overlays.removeAll(holder.trafficMarkers)
-                    holder.trafficMarkers.clear()
+                    dirty = true
+                    val seen = HashSet<String>()
                     if (aircraftLayer) {
                         radar.aircraft.forEach { ac ->
                             val lat = ac.latitude ?: return@forEach
                             val lon = ac.longitude ?: return@forEach
+                            seen.add(ac.icao24)
+                            val m = holder.aircraftMarkers.getOrPut(ac.icao24) {
+                                Marker(mv).also {
+                                    it.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                                    mv.overlays.add(it)
+                                }
+                            }
                             // Couleur = tendance : bleu monte / rouge descend / gris niveau
                             val color = when {
                                 (ac.verticalRateMs ?: 0f) > 1f -> Color(0xFF1E88E5)
                                 (ac.verticalRateMs ?: 0f) < -1f -> Color(0xFFD32F2F)
                                 else -> Color(0xFF616161)
                             }
-                            val m = Marker(mv)
                             m.position = GeoPoint(lat, lon)
                             // osmdroid tourne les icônes en sens antihoraire :
                             // le cap (horaire) doit être inversé.
                             m.rotation = -(ac.heading ?: 0f)
-                            m.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                             m.icon = holder.aircraftIcon(mv.context, sizePx(sizeFromSpeed(ac.velocityMs)), color)
                             m.title = ac.callsign.ifEmpty { ac.icao24 }
                             m.setOnMarkerClickListener { _, _ ->
@@ -181,28 +184,53 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                                 selectedVessel = null
                                 true
                             }
-                            holder.trafficMarkers.add(m)
                         }
                     }
+                    // Retire les avions disparus (ou toute la couche si désactivée)
+                    val it = holder.aircraftMarkers.entries.iterator()
+                    while (it.hasNext()) {
+                        val e = it.next()
+                        if (e.key !in seen) {
+                            mv.overlays.remove(e.value)
+                            it.remove()
+                        }
+                    }
+                }
+                if (holder.vessels !== radar.vessels || holder.vesselLayer != vesselLayer) {
+                    holder.vessels = radar.vessels
+                    holder.vesselLayer = vesselLayer
+                    dirty = true
+                    val seen = HashSet<Long>()
                     if (vesselLayer) {
                         radar.vessels.forEach { v ->
-                            val m = Marker(mv)
+                            seen.add(v.mmsi)
+                            val m = holder.vesselMarkers.getOrPut(v.mmsi) {
+                                Marker(mv).also {
+                                    it.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                                    it.icon = holder.vesselIcon(mv.context, sizePx(20))
+                                    mv.overlays.add(it)
+                                }
+                            }
                             m.position = GeoPoint(v.latitude, v.longitude)
                             m.rotation = -v.course
-                            m.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                            m.icon = holder.vesselIcon(mv.context, sizePx(20))
                             m.title = v.name
                             m.setOnMarkerClickListener { _, _ ->
                                 selectedVessel = v
                                 selectedAircraft = null
                                 true
                             }
-                            holder.trafficMarkers.add(m)
                         }
                     }
-                    mv.overlays.addAll(holder.trafficMarkers)
-                    mv.invalidate()
+                    val it = holder.vesselMarkers.entries.iterator()
+                    while (it.hasNext()) {
+                        val e = it.next()
+                        if (e.key !in seen) {
+                            mv.overlays.remove(e.value)
+                            it.remove()
+                        }
+                    }
                 }
+                if (dirty) mv.invalidate()
                 if (pos.hasFix) {
                     val me = holder.userMarker ?: Marker(mv).also {
                         it.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
@@ -220,77 +248,82 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
             }
         )
 
-        // Indicateur d'état (mise à jour / à jour / requêtes restantes)
-        Surface(
+        // Bandeau vitesse + indicateur d'état : une seule rangée qui se
+        // partage la largeur — plus de chevauchement sur petits écrans
+        Row(
             modifier = Modifier
-                .align(Alignment.TopEnd)
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
                 .padding(12.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = Color.White.copy(alpha = 0.92f),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
         ) {
-            Row(
-                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            SpeedBanner(
+                pos = pos,
+                radar = radar,
+                settings = settings,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                modifier = Modifier.weight(1f, fill = false),
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White.copy(alpha = 0.92f),
             ) {
-                val blocked = radar.blockedUntilMs > System.currentTimeMillis()
-                when {
-                    blocked -> {
+                Row(
+                    Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val blocked = radar.blockedUntilMs > System.currentTimeMillis()
+                    when {
+                        blocked -> {
+                            Text(
+                                "⏳ Quota OpenSky — reprise ${retryDelayText(radar.blockedUntilMs)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFE65100),
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        radar.authFailed -> {
+                            Text(
+                                "⚠️ Clé OpenSky refusée — requêtes anonymes",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFC62828),
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        radar.loading -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Mise à jour…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF455A64),
+                            )
+                        }
+                        radar.lastUpdateMs > 0L -> {
+                            Text(
+                                "✓ À jour",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF1B5E20),
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                    if (!blocked) radar.rateLimitRemaining?.let { rl ->
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            "⏳ Quota OpenSky — reprise ${retryDelayText(radar.blockedUntilMs)}",
+                            "· $rl req",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFE65100),
-                            fontWeight = FontWeight.SemiBold,
+                            color = if (rl < 100) Color(0xFFE65100) else Color(0xFF546E7A),
                         )
                     }
-                    radar.authFailed -> {
-                        Text(
-                            "⚠️ Clé OpenSky refusée — requêtes anonymes",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFC62828),
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    radar.loading -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "Mise à jour…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF455A64),
-                        )
-                    }
-                    radar.lastUpdateMs > 0L -> {
-                        Text(
-                            "✓ À jour",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF1B5E20),
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-                if (!blocked) radar.rateLimitRemaining?.let { rl ->
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "· $rl req",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (rl < 100) Color(0xFFE65100) else Color(0xFF546E7A),
-                    )
                 }
             }
         }
-
-        // Bandeau vitesse
-        SpeedBanner(
-            pos = pos,
-            radar = radar,
-            settings = settings,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(12.dp)
-        )
 
         // Recentrer
         FloatingActionButton(

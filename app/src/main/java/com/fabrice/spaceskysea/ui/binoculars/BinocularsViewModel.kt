@@ -142,10 +142,13 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             feed.state.collect { f ->
                 rebuildTargets(f)
-                // Départ/arrivée en tâche de fond : redémarre le balayage à
-                // chaque rafraîchissement pour re-prioriser les plus proches
-                if (f.aircraft.isNotEmpty()) {
-                    routesJob?.cancel()
+                // Départ/arrivée en tâche de fond. IMPORTANT : ne jamais
+                // annuler un balayage en cours — l'annuler en pleine requête
+                // laissait l'avion « tenté sans résultat » (bloqué 5 min) et
+                // presque aucun itinéraire ne s'affichait dans les Jumelles.
+                // Une passe se termine (≤ 20 avions), la suivante repart des
+                // plus proches avec les priorités à jour.
+                if (f.aircraft.isNotEmpty() && routesJob?.isActive != true) {
                     routesJob = viewModelScope.launch {
                         fetchMissingRoutes(_state.value.allAircraft)
                     }
@@ -209,8 +212,10 @@ class BinocularsViewModel(application: Application) : AndroidViewModel(applicati
         }.take(20)
         for (t in missing) {
             if (feed.routes.allSourcesBlocked) break
-            routesAttemptedAt[t.icao24] = System.currentTimeMillis()
             val route = feed.routes.fetchRoute(t.label, t.icao24)
+            // Marqué « tenté » seulement après une requête COMPLÈTE : une
+            // annulation ne doit pas consommer la garde de 5 min
+            routesAttemptedAt[t.icao24] = System.currentTimeMillis()
             if (route != null && route.first == "LIMIT") break // toutes sources bloquées
             if (route != null) {
                 routesCache[t.icao24] = route

@@ -64,6 +64,16 @@ class GeoUtilsAngleTest {
     }
 
     @Test
+    fun `offsetPosition avance vers le nord et vers l'est`() {
+        val (latN, lonN) = GeoUtils.offsetPosition(48.0, 2.0, 0.0, 1113.2)
+        assertEquals(48.01, latN, 1e-4)   // ~1,11 km nord ≈ +0,01° lat
+        assertEquals(2.0, lonN, 1e-9)
+        val (latE, lonE) = GeoUtils.offsetPosition(0.0, 2.0, 90.0, 1113.2)
+        assertEquals(0.0, latE, 1e-9)
+        assertEquals(2.01, lonE, 1e-4)    // à l'équateur : +0,01° lon
+    }
+
+    @Test
     fun `signedAngleDelta donne le sens du plus court chemin`() {
         assertEquals(20f, GeoUtils.signedAngleDelta(10f, 350f), 0.01f)   // 350°→10° = +20 (droite)
         assertEquals(-20f, GeoUtils.signedAngleDelta(350f, 10f), 0.01f)  // 10°→350° = −20 (gauche)
