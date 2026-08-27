@@ -219,15 +219,13 @@ fun SettingsScreen(
             onClick = {
                 updateStatus = "Vérification en cours…"
                 scope.launch {
-                    val result = com.fabrice.spaceskysea.UpdateManager(context).checkNow()
-                    updateStatus = when (result) {
-                        is com.fabrice.spaceskysea.UpdateCheck.UpToDate ->
-                            "✅ Vous avez la dernière version (v${result.current})"
-                        is com.fabrice.spaceskysea.UpdateCheck.Downloading ->
-                            "⬇️ v${result.version} disponible — téléchargement lancé : " +
-                                "ouvrez l'APK depuis la barre de notifications (ou Téléchargements) pour installer"
-                        is com.fabrice.spaceskysea.UpdateCheck.Failed ->
-                            "❌ ${result.message}"
+                    val info = com.fabrice.spaceskysea.update.UpdateChecker.checkForUpdate()
+                    updateStatus = if (info == null) {
+                        "✅ Vous avez la dernière version"
+                    } else {
+                        com.fabrice.spaceskysea.update.AutoUpdater.download(context, info.apkUrl, info.version)
+                        "⬇️ v${info.version} disponible — téléchargement lancé : " +
+                            "ouvrez l'APK depuis la barre de notifications (ou Téléchargements) pour installer"
                     }
                 }
             },
