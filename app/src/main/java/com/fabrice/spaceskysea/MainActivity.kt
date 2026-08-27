@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestLocationPermissionsIfNeeded()
-        UpdateManager(this).checkForUpdates()
+        com.fabrice.spaceskysea.update.UpdateManager.start(this)
         setContent {
             SpaceSkySeaTheme {
                 SpaceSkySeaApp(settingsViewModel) {
