@@ -69,27 +69,24 @@ import org.osmdroid.views.overlay.CopyrightOverlay
 import org.osmdroid.views.overlay.Marker
 
 /**
- * Tuiles CartoDB Voyager en 512 px (@2x) : carte NETTE sur écrans haute densité
- * (contrairement aux tuiles OSM standard 256 px qui paraissent pixélisées).
- * Style moderne et lisible, gratuit, sans clé.
+ * Tuiles OpenStreetMap standard, 256 px, SANS CLÉ.
+ *
+ * Historique : l'application utilisait CartoDB Voyager (512 px, plus net).
+ * CARTO a fermé son usage libre : les tuiles s'affichent désormais avec le
+ * filigrane « API KEY REQUIRED » et la carte devient inutilisable. OSM
+ * standard reste libre et sans clé, avec un simple User-Agent identifiable
+ * (déjà positionné plus bas) et l'attribution obligatoire.
  */
-private class CartoVoyagerSource : XYTileSource(
-    "CartoVoyager", 0, 20, 512, ".png",
+private class OsmStandardSource : XYTileSource(
+    "OpenStreetMap",
+    0, 19, 256, ".png",
     arrayOf(
-        "https://a.basemaps.cartocdn.com/rastertiles/voyager/",
-        "https://b.basemaps.cartocdn.com/rastertiles/voyager/",
-        "https://c.basemaps.cartocdn.com/rastertiles/voyager/",
+        "https://a.tile.openstreetmap.org/",
+        "https://b.tile.openstreetmap.org/",
+        "https://c.tile.openstreetmap.org/",
     ),
-    "© OpenStreetMap contributors © CARTO",
-) {
-    override fun getTileURLString(tile: Long): String {
-        val z = MapTileIndex.getZoom(tile)
-        val x = MapTileIndex.getX(tile)
-        val y = MapTileIndex.getY(tile)
-        val sub = "abc"[(x + y) % 3]
-        return "https://$sub.basemaps.cartocdn.com/rastertiles/voyager/$z/$x/$y@2x.png"
-    }
-}
+    "© OpenStreetMap contributors",
+)
 
 /** État des overlays déjà rendus : mises à jour incrémentales (1 Hz avec
  *  l'extrapolation) au lieu de reconstruire tous les marqueurs. */
@@ -139,7 +136,7 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                 )
                 Configuration.getInstance().userAgentValue = "SpaceSkySeaRadar/1.0"
                 val mv = MapView(ctx)
-                mv.setTileSource(CartoVoyagerSource())
+                mv.setTileSource(OsmStandardSource())
                 mv.controller.setZoom(11.0)
                 mv.setMultiTouchControls(true)
                 mv.overlays.add(CopyrightOverlay(ctx))
