@@ -164,6 +164,36 @@ class OpenSkyParsingTest {
         assertEquals(0, OpenSkyParser.parseStates("""{"time":0}""").size)
         assertEquals(0, OpenSkyParser.parseStates("""{"time":0,"states":[]}""").size)
     }
+
+    @Test
+    fun `states null ne fait pas planter le parseur`() {
+        // Réponse réelle d'OpenSky quand aucun avion n'est dans la zone
+        // (au-dessus du Maroc ou de l'océan) : "states": null.
+        assertEquals(0, OpenSkyParser.parseStates("""{"time":1762345678,"states":null}""").size)
+    }
+
+    @Test
+    fun `corps null ou non conforme ne fait pas planter le parseur`() {
+        assertEquals(0, OpenSkyParser.parseStates("null").size)
+        assertEquals(0, OpenSkyParser.parseStates("[]").size)
+        assertEquals(0, OpenSkyParser.parseStates("""{"states":{}}""").size)
+    }
+
+    @Test
+    fun `un element de states qui n est pas un tableau est ignore`() {
+        val body = """{"time":0,"states":[null,42,{"x":1},["abc123","CALL1","France",0,0,2.35,48.85,1000.0,false,200.0,90.0]]}"""
+        val avions = OpenSkyParser.parseStates(body)
+        assertEquals(1, avions.size)
+        assertEquals("abc123", avions[0].icao24)
+        assertEquals(48.85, avions[0].latitude!!, 1e-6)
+    }
+
+    @Test
+    fun `itineraire sur reponse null ne fait pas planter`() {
+        assertNull(OpenSkyParser.parseFlightRoute("null"))
+        assertNull(OpenSkyParser.parseFlightRoute("""{"error":"nope"}"""))
+        assertNull(OpenSkyParser.parseFlightRoute("[]"))
+    }
 }
 
 class AisParsingTest {

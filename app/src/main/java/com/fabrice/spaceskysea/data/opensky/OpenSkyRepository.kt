@@ -149,7 +149,13 @@ class OpenSkyRepository(private val settings: SettingsStore) {
             when (response.code) {
                 200 -> {
                     val body = response.body?.string() ?: return@withContext OpenSkyResult.Error("Réponse vide")
-                    OpenSkyResult.Success(OpenSkyParser.parseStates(body))
+                    // Filet de sécurité : même corrigé, un parseur ne doit jamais
+                    // pouvoir fermer l'application depuis une réponse serveur.
+                    try {
+                        OpenSkyResult.Success(OpenSkyParser.parseStates(body))
+                    } catch (t: Throwable) {
+                        OpenSkyResult.Error("Réponse OpenSky illisible : ${t.javaClass.simpleName}")
+                    }
                 }
                 429 -> OpenSkyResult.QuotaExceeded(
                     response.header("x-rate-limit-retry-after-seconds")?.toLongOrNull()

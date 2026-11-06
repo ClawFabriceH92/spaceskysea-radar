@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.floatOrNull
@@ -25,8 +26,10 @@ object OpenSkyParser {
      * que l'avion vole. Null si aucun vol n'a d'aéroport connu.
      */
     fun parseFlightRoute(body: String): Pair<String?, String?>? {
-        val arr = json.parseToJsonElement(body).jsonArray
-        val latest = arr.mapNotNull { it as? kotlinx.serialization.json.JsonObject }
+        // OpenSky renvoie parfois "null" (aucun vol) ou un objet d'erreur :
+        // lancer .jsonArray dessus fermait l'application.
+        val arr = json.parseToJsonElement(body) as? JsonArray ?: return null
+        val latest = arr.mapNotNull { it as? JsonObject }
             .maxByOrNull { it["firstSeen"]?.jsonPrimitive?.longOrNull ?: 0L }
             ?: return null
         fun airport(key: String): String? =
@@ -39,12 +42,15 @@ object OpenSkyParser {
     }
 
     fun parseStates(body: String): List<Aircraft> {
-        val root = json.parseToJsonElement(body).jsonObject
-        val states: JsonArray = root["states"]?.jsonArray ?: return emptyList()
+        val racine = json.parseToJsonElement(body) as? JsonObject ?: return emptyList()
+        // "states": null est une réponse NORMALE d'OpenSky quand aucun avion ne
+        // se trouve dans la zone demandée (typiquement au-dessus du Maroc ou de
+        // l'océan). L'ancien `root["states"]?.jsonArray` levait une
+        // IllegalArgumentException et fermait l'application.
+        val states = racine["states"] as? JsonArray ?: return emptyList()
         val out = mutableListOf<Aircraft>()
         for (el: JsonElement in states) {
-            if (el is JsonNull) continue
-            val arr = el.jsonArray
+            val arr = el as? JsonArray ?: continue
             if (arr.size < 11) continue
             fun s(i: Int): String? = arr.getOrNull(i)?.takeIf { it !is JsonNull }?.jsonPrimitive?.contentOrNull
             fun d(i: Int): Double? = arr.getOrNull(i)?.takeIf { it !is JsonNull }?.jsonPrimitive?.doubleOrNull
