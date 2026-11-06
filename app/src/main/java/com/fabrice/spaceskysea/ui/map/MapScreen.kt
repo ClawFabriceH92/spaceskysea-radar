@@ -343,6 +343,9 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
         selectedAircraft?.let { ac ->
             val route by vm.selectedRoute.collectAsState()
             val routeLoading by vm.routeLoading.collectAsState()
+            // Instantané : `route` est un état délégué, sa valeur peut changer
+            // entre le test et l'affichage (plantage NPE vu en production).
+            val routeSnapshot = route
             LaunchedEffect(ac.icao24) {
                 vm.loadAircraftRoute(ac.icao24, ac.callsign)
             }
@@ -378,7 +381,7 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                                     Text("Recherche de l'itinéraire…", style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
-                            route?.first == "LIMIT" -> {
+                            routeSnapshot?.first == "LIMIT" -> {
                                 val retryAt = vm.routeRetryAtMs
                                 Text(
                                     "⏳ Itinéraires temporairement indisponibles (limite des fournisseurs)" +
@@ -388,9 +391,9 @@ fun MapScreen(modifier: Modifier = Modifier, vm: MapViewModel = viewModel()) {
                                     color = Color(0xFFE65100),
                                 )
                             }
-                            route != null -> {
+                            routeSnapshot != null -> {
                                 Text(
-                                    "🛫 Itinéraire : ${route!!.first} → ${route!!.second}",
+                                    "🛫 Itinéraire : ${routeSnapshot.first} → ${routeSnapshot.second}",
                                     fontWeight = FontWeight.Bold,
                                 )
                             }

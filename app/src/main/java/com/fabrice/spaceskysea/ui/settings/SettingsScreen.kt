@@ -1,5 +1,6 @@
 package com.fabrice.spaceskysea.ui.settings
 
+import com.fabrice.spaceskysea.CrashLogger
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -193,6 +194,35 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.outline,
             modifier = Modifier.padding(top = 2.dp),
         )
+
+        // Journal de plantage : sans câble USB, c'est le seul moyen de
+        // récupérer la pile d'appels quand l'application se ferme toute seule.
+        SectionTitle("Journal de plantage")
+        val contexteJournal = androidx.compose.ui.platform.LocalContext.current
+        var plantage by remember { mutableStateOf(CrashLogger.dernierPlantage(contexteJournal)) }
+        val plantageAffiche = plantage
+        if (plantageAffiche != null) {
+            Text(
+                plantageAffiche.lineSequence().take(8).joinToString("\n"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Row {
+                TextButton(onClick = {
+                    contexteJournal.startActivity(CrashLogger.intentionPartage(contexteJournal))
+                }) { Text("📤 Envoyer le journal") }
+                TextButton(onClick = {
+                    CrashLogger.effacer(contexteJournal)
+                    plantage = null
+                }) { Text("Effacer") }
+            }
+        } else {
+            Text(
+                "Aucun plantage enregistré.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
 
         SectionTitle("Suivi")
         ToggleRow("Suivi en arrière-plan (option)", s.backgroundTracking) {

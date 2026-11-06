@@ -2,6 +2,7 @@ package com.fabrice.spaceskysea.ui.settings
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import com.fabrice.spaceskysea.CrashLogger
 import com.fabrice.spaceskysea.data.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,14 +50,33 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setSpeedUnit(u: String) { store.speedUnit = u; _state.value = readState() }
     fun setAircraftLayer(on: Boolean) { store.aircraftLayerEnabled = on; _state.value = readState() }
     fun setVesselLayer(on: Boolean) { store.vesselLayerEnabled = on; _state.value = readState() }
-    fun setOpenSkyClientId(v: String) { store.openskyClientId = v; _state.value = readState() }
-    fun setOpenSkyClientSecret(v: String) { store.openskyClientSecret = v; _state.value = readState() }
+    fun setOpenSkyClientId(v: String) {
+        store.openskyClientId = v
+        CrashLogger.miette("clientId modifié (${v.length} car.)")
+        _state.value = readState()
+    }
+    fun setOpenSkyClientSecret(v: String) {
+        store.openskyClientSecret = v
+        CrashLogger.miette("clientSecret modifié (${v.length} car.)")
+        _state.value = readState()
+    }
     fun setAisKey(v: String) { store.aisstreamKey = v; _state.value = readState() }
     fun setBackgroundTracking(on: Boolean) { store.backgroundTrackingEnabled = on; _state.value = readState() }
 
     /** Teste la connexion OpenSky (token + requête). Null = OK. */
-    suspend fun testOpenSkyConnection(): String? = opensky.testCredentials()
+    suspend fun testOpenSkyConnection(): String? {
+        CrashLogger.miette("test de connexion OpenSky lancé")
+        return try {
+            opensky.testCredentials()
+        } catch (t: Throwable) {
+            // Un plantage ici ne doit plus fermer l'application : on le journalise
+            // et on l'affiche comme une simple erreur de test.
+            CrashLogger.miette("test connexion : ${t.javaClass.simpleName} ${t.message ?: ""}")
+            "❌ Erreur inattendue : ${t.javaClass.simpleName} ${t.message ?: ""}"
+        }
+    }
     fun importOpenSkyCredentials(uri: android.net.Uri): String? {
+        CrashLogger.miette("import credentials.json")
         return try {
             val input = getApplication<Application>().contentResolver.openInputStream(uri) ?: return "Fichier illisible"
             val text = input.bufferedReader().use { it.readText() }
@@ -68,6 +88,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     /** Applique le contenu d'un credentials.json (colle ou import). */
     fun applyOpenSkyJson(raw: String): String? {
+        CrashLogger.miette("application du JSON collé (${raw.length} car.)")
         return try {
             val text = raw.trim().removePrefix("\uFEFF") // BOM UTF-8 éventuel
             val json = org.json.JSONObject(text)
